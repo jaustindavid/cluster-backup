@@ -23,6 +23,7 @@ class PersistentDict:
         self.transactionName = None
         self.data = {}
         self.logger = logging.getLogger(logger_str(__class__))
+        self.logger.setLevel(logging.INFO)
         self.lazy_timer = lazy_timer
         # self.logger.debug(f"lazy: {lazy_timer}")
         self.dirty = False
@@ -137,8 +138,8 @@ class PersistentDict:
     def delete(self, key):
         try:
             del self.data[key]
-            del self.dirtybits[key]
             self.lazy_write()
+            del self.dirtybits[key]
         except KeyError:
             self.logger.exception("whoa")
             pass
