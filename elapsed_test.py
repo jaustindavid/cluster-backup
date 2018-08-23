@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import unittest, elapsed, time
+from elapsed import ExpiringDict
 
 class TestTimerMethods(unittest.TestCase):
 
@@ -29,6 +30,18 @@ class TestTimerMethods(unittest.TestCase):
         time.sleep(7)
         print(f"So far {time.time() - start}s elapsed")
         self.assertEquals(timer.once_every(10), True)
+
+
+    def test_ExpiringDict(self):
+        ed = ExpiringDict(0.5)
+        ed["foo"] = "this doesn't matter"
+        self.assertFalse(ed["foo"])
+        time.sleep(0.25)
+        ed["foos"] = "this doesn't matter either"
+        time.sleep(0.3)
+        self.assertFalse(ed["foos"])
+        self.assertTrue(ed["foo"])
+        self.assertEquals(ed.expired(), ["foo"])
 
 
 if __name__ == "__main__":
