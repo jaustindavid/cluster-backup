@@ -105,6 +105,16 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(len(c), 1)
 
 
+    def test_append(self):
+        c = comms.Communique("command", "source", "client")
+        args = list()
+        c.append(args)
+        self.assertEquals(str(c), "command @@ source @@ client")
+        args = [ "filename" ]
+        c.append(args)
+        self.assertEquals(str(c), "command @@ source @@ client @@ filename")
+
+
 
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMethods)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import logging
+import logging, itertools
 
 """
 This should evaluate to True or False
@@ -42,12 +42,13 @@ class Communique:
             self.contents = None
 
 
-    # ([[item]],) -> item: will keep unrolling a nested list of 1 item
-    # because python is stupid
-    def DEADunroll(self, thing):
-        if type(thing) is list and len(thing) == 1:
-            return self.unroll(thing[0])
-        return thing 
+    ''' append 0 or more args to my contents '''
+    def append(self, *args):
+        args = list(itertools.chain.from_iterable(args))
+        if len(args) > 0:
+            if type(self.contents) is not list:
+                self.contents = list(self.contents)
+            self.contents += args
 
 
     def __getitem__(self, key):
