@@ -17,13 +17,16 @@ files of sources, trusting that they will volunteer needy files.
 BEHAVIOUR
 see step()
 
+TODONE:
+- inform()
+    make a "are we good" message, for the server to have the opportunity
+    to ask the client for an update (in the case where a server has no 
+    state); possibly as a response to "overserved"
+- inventory():
+    on startup, have the client ask the server IF I should be holding files 
+    like an "inform 0"
+
 TODO:
-- make a "are we good" message, for the server to have the opportunity
-  to ask the client for an update (in the case where a server has no 
-  state); possibly as a response to "overserved"
-    * done in the periodic "inform" ?
-- on startup, have the client ask the server IF I should be holding files 
-  like an "inform 0"
 - if I get overfull, is there a way to have another client shuffle so
     I can get straight?  Like, have an overserved client drop files
     then cover some of mine...  And is this a big deal?  (a sort of 
@@ -109,12 +112,10 @@ class Clientlet(Thread):
         # scan should be cheap, so no per-file scan
         self.scanners[source_context].scan()
         filestate = self.scanners[source_context].get(filename)
-        # result = self.send(source_context, "claim", filename, \
-        #                     filestate["checksum"])[0]
         response = self.send(source_context, "claim", filename, \
-                            filestate["checksum"])[0]
+                            filestate["checksum"])
         self.logger.debug(f"2329 {response} is {type(response)}")
-        if response and response != "NACK":
+        if response:
             # self.files.append(filename)   # implied by ownership
             self.logger.debug(f"{response} is {type(response)}")
             self.logger.debug(f"{self.context} claimed {filename} successfully")
@@ -125,6 +126,8 @@ class Clientlet(Thread):
             self.drop(source_context, filename)
 
 
+    # inform (optionally a server, optionally of a filename)
+    # that I have it
     def inform(self, source_context=None, filename=None):
         if source_context and filename:
             self.claim(source_context, filename)
@@ -132,9 +135,30 @@ class Clientlet(Thread):
             for filename in self.scanners[source_context]:
                 self.claim(source_context, filename)
         else:
-            for source_context in self.scanners:
+            for source_context in self.random_source_list:
                 for filename in self.scanners[source_context].keys():
                     self.claim(source_context, filename)
+
+    def unclaim(self, source_context, filename):
+        response = self.send(source_context, "unclaim", filename)
+        self.logger.debug(f"23235 response={response}, of type {type(response)}")
+        return response
+        
+
+    # inverse of "inform": what files should I have?
+    # for this list of files, either claim or unclaim them
+    def inventory(self, source_context=None):
+        if source_context:
+            response = self.send(source_context, "inventory")
+            if response:
+                for filename in response:
+                    if filename in self.scanners[source_context]:
+                        self.claim(source_context, filename)
+                    else:
+                        self.unclaim(source_context, filename)
+        else:
+            for source_context in self.random_source_list:
+                self.inventory(source_context)
 
 
     # actually copying a file takes time
@@ -169,6 +193,21 @@ class Clientlet(Thread):
         else:
             self.logger.error("Failed to rsync???")
             raise FileNotFoundError
+
+
+    """
+    usage: 
+        if self.full_p():
+            TODO: select a file
+            if self.drain(source_context, filemame):
+                self.drop(source_context, filename)
+            
+    for whatever reason I need to drop a file, but it's not
+    an emergency.  I'll "drain" it, and give the server time
+    to get it rebalanced
+    """
+    def drain(self, source_context, filename = None):
+        pass
 
 
     def drop(self, source_context, filename):
@@ -290,7 +329,7 @@ class Clientlet(Thread):
         return True # fallthrough
 
 
-    # hunt for ONE file to drop, then drop it
+    # hunt for ONE overserved file to drop, then drop it
     def try_to_drop(self):
         for source_context in self.random_source_list:
             response = self.send(source_context, "overserved")
@@ -356,9 +395,12 @@ class Clientlet(Thread):
         timer = elapsed.ElapsedTimer()
         for source_context in self.scanners:
             self.scanners[source_context].scan()
+        self.inventory()    # asks the server
+        self.inform()       # tells the server
         while not self.bailing:
             self.logger.info(f"running")
             while self.step():
+                time.sleep(3)
                 self.logger.debug(f"stepping again")
                 if timer.once_every(60):
                     for source_context in self.scanners:
