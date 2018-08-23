@@ -1,0 +1,21 @@
+options: PORT: 5005, ADDRESS: localhost
+source: localhost:~/src/cb/test/source1 # ~1gb
+copies: 2
+source: localhost:~/src/cb/test/source2 # ~3gb
+copies: 2
+update: 24h
+source: localhost:~/src/cb/test/source3 # ~5gb
+copies: 1
+
+# backup: localhost:~/src/cb/test/backup1
+# size: 2g
+# backup: localhost:~/src/cb/test/backup2
+# size: 1g
+backup: localhost:~/src/cb/test/backup3
+size: 6g
+# backup: localhost:~/src/cb/test/backup4
+# size: 2g
+# backup: localhost:~/src/cb/test/backup5
+# size: 2g
+# backup: localhost:~/src/cb/test/backup6
+# size: 2g
