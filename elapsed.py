@@ -44,6 +44,8 @@ class ElapsedTimer:
     ed = ExpiringDict(3)
     ed[1] = "whatever" # set or reset a timer 
     if ed[1]:   # True when this timer expires
+
+    ed.expired() # list of expired keys
 """
 class ExpiringDict:
     def __init__(self, expiry, sense=True):
@@ -73,6 +75,9 @@ class ExpiringDict:
     def __contains__(self, key):
         return key in self.data
 
+
+    def expired(self):
+        return [ key for key in self.data if self[key] ]
 
 
 if __name__ == "__main__":
