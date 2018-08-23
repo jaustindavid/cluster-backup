@@ -15,38 +15,7 @@ actually watches files and checksums.  The Clientlet will request
 files of sources, trusting that they will volunteer needy files.
 
 BEHAVIOUR
-* if possible, back up a file (strategy = "acquire")
-    * prefer "underserved" hosts
-    * if none, take an "available" host
-    * overserved & "just right" hosts are of no interest
-* if I tried to copy a file and couldn't find any because of storage,
-    change stratetgy (strategy = "drop")
-    * hunt for (one) overserved file, and drop it; 
-        change strategy to "acquire"
-
-Source selection:
-- prefer a source which reports a file being "underserved"
-  - NO prioritization among files or sources; any is a candidate
-    TODO: try again if the offered file would exhaust my free space
-- randomly select a source which has *any* files
-  - this means a backup-with-storage will (randomly) slurp more
-    content down from a source; the source will see over-coverage 
-    for some files
-  - sources should therefore prefer handing out files in reverse
-    order of coverage (job of the server)
-- if no sources have any files, maybe rebalance
-
-Once a source is chosen, it's "sticky"; the Clientlet will keep
-copying from this source until the source is covered
-
-Note that a source won't return a file to a client if the client
-already has the file.
-
-REBALANCE
-If a Clientlet is full it will try to rebalance:
-    if a server has an underserved file, 
-    drop one of my overserved files
-    (implied: next pass, I'll find the underserved file)
+see step()
 
 TODO:
 - make a "are we good" message, for the server to have the opportunity
@@ -90,11 +59,6 @@ RuntimeError: dictionary changed size during iteration
 """
 
 
-# TODO: if a server volunteers a file I already have, 
-# I should give him my inventory (and prune as needed)
-# TODO: I should periodically tell a server about all my files
-
-
 
 # a Clientlet can copy data from any/every source, but will only
 # store in one backup location
@@ -123,8 +87,6 @@ class Clientlet(Thread):
         self.scanners = {}
         self.random_source_list = []
         self.build_sources()
-        self.favorite_source = None
-        self.strategy = "acquire" # could also be "drop"; will change over time
         self.drops = 0  # count the number of times I drop a file
 
 
@@ -173,7 +135,6 @@ class Clientlet(Thread):
             for source_context in self.scanners:
                 for filename in self.scanners[source_context].keys():
                     self.claim(source_context, filename)
-
 
 
     # actually copying a file takes time
@@ -228,52 +189,8 @@ class Clientlet(Thread):
             return False
 
 
-
-
-    # choose a source; if I already have a favorite, use it
-    # else cycle through sources and look for underserved
-    #     (no prioritization -- any underserved is OK)
-    # else just pick one (implied: all sources are candidates)
-    def DEADselect_source(self):
-        # do I already have a favorite?  be sticky (I'll forget it later)
-        if self.favorite_source is not None:
-            self.logger.debug(f"favorite: {self.favorite_source}")
-            return
-
-        # is any source underserved?
-        for source_context in self.random_source_list:
-            self.logger.debug(f"considering {source_context}")
-            response = self.send(source_context, "underserved")
-            if response: # if response[0] is not None:
-                self.logger.debug(f"got {response}\n")
-                self.favorite_source = source_context
-                self.logger.debug(f"new favorite: {self.favorite_source} (underserved)")
-                return
-
-        self.logger.debug("no underserved hosts; looking for any")
-        # Does any source have files?
-        for source_context in self.random_source_list:
-            self.logger.debug(f"considering {source_context}")
-            # if self.send(source_context, "request", str(self.free())):
-            response = self.request(source_context)
-            if response:   # TODO: abbreviate
-                self.favorite_source = source_context
-                self.logger.debug(f"new favorite: {self.favorite_source} (satisfied)")
-                return
-
-        # no sticky, no underserved, all are satisfied: no sources
-        self.favorite_source = None
-
-
     # returns a tuple -- (filename, size) (or a 2-element list)
     def request(self, source_context):
-        # filename, *rest = self.send(source_context, "request", \
-        #                                str(self.free()))[:2]
-        # self.logger.debug(f"request gets {filename}, {rest}")
-        # if filename is None:
-        #     return (None, 0)
-        # else:
-        #     return (filename, rest[0])
         response = self.send(source_context, "request", str(self.free()))
         self.logger.debug(f"request gets {response}")
         if response:
@@ -331,9 +248,6 @@ class Clientlet(Thread):
 
         s.close()
         self.logger.debug(f"received '{data}'")
-        # if data == "__none__":
-        #     return (None,)
-        # return data.split(" @@ ")
         ret = comms.Communique.build(data, negatives=("NACK", "__none__", "None"))
         self.logger.debug(f"ret={ret}, of type {type(ret)}")
         return ret
@@ -402,18 +316,6 @@ class Clientlet(Thread):
 
 
     """
-    BEHAVIOUR
-    * if possible, back up a file (strategy = "acquire")
-        * prefer "underserved" hosts
-        * if none, take an "available" host
-        * overserved & "just right" hosts are of no interest
-    * if I tried to copy a file and couldn't find any because of storage,
-        change stratetgy (strategy = "drop")
-        * hunt for (one) overserved file, and drop it; 
-            change strategy to "acquire"
-        * don't hunt forever (there might be smaller files I could pick up)
-
-    ZOMG
     * if *I* am full, 
         drop something & loop
     * if any of my servers are undeserved
@@ -422,7 +324,6 @@ class Clientlet(Thread):
     * if any files are available to copy
         * try to copy & loop
         * if I can't copy, sleep
-
     """
     def step(self):
         server_statuses = self.check_on_servers()
@@ -442,58 +343,6 @@ class Clientlet(Thread):
             return self.try_to_copy()
             
 
-    def step2(self):
-        if self.full_p():
-            self.logger.debug("full; trying to drop")
-            return self.try_to_drop()
-        elif self.strategy == "acquire":
-            # source_context = self.select_source("acquire")
-            self.logger.debug("trying to copy")
-            if not self.try_to_copy():
-                self.strategy = "drop"
-        else:
-            self.logger.debug("not acquiring; trying to drop")
-            self.strategy = "acquire"
-            return self.try_to_drop()
-        return True
-
-
-    # "step" through one cycle (find/request/copy/record)
-    # pulls one (list of) files from one server
-    # returns True if I did something (implying there's probably 
-    # more to do).  If I'm full I'll make a rebalance() pass, but
-    # I'll return False
-    def OLDstep(self): 
-        # definitely rebalance if I'm full
-        if self.full_p():
-            return self.rebalance()
-
-        self.logger.debug("selecting source")
-        self.favorite_source = self.select_source()
-        # if I get a "favorite" it's because files need replicatin'
-        if self.favorite_source is not None:
-            source_context = self.favorite_source
-            self.logger.debug(f"got {source_context}")
-            # filename, *rest = self.send(source_context, "request", \
-            #                         str(self.free()))[:2]
-            filename, size = self.request(source_context)
-            if filename is not None:
-                self.logger.debug(f"retrieving {source_context}:{filename}")
-                self.retrieve(source_context, filename)
-                return True
-            else:
-                # my favorite returned no files, so I've 
-                # likely exhausted all sources; take a rest?
-                # TODO: check this
-                self.favorite_source = None
-                return False
-        else:
-            # no favorite: I have all the files (yay!)
-            # TODO "if someone is underserved, rebalance"
-            return self.rebalance()
-            return False
-
-
     def audit(self):
         self.logger.debug(f"auditing {self}: {self.drops} drops")
         for source_context in sorted(self.scanners):
@@ -510,7 +359,6 @@ class Clientlet(Thread):
         while not self.bailing:
             self.logger.info(f"running")
             while self.step():
-                time.sleep(1)
                 self.logger.debug(f"stepping again")
                 if timer.once_every(60):
                     for source_context in self.scanners:
