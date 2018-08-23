@@ -68,7 +68,7 @@ class ExpiringDict:
             self.data[key] = ElapsedTimer()
 
 
-    def __delete__(self, key):
+    def __delitem__(self, key):
         del self.data[key]
 
 
@@ -78,6 +78,11 @@ class ExpiringDict:
 
     def expired(self):
         return [ key for key in self.data if self[key] ]
+
+
+    def cleanup(self):
+        for key in self.expired():
+            del self[key]
 
 
 if __name__ == "__main__":

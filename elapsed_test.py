@@ -42,6 +42,10 @@ class TestTimerMethods(unittest.TestCase):
         self.assertFalse(ed["foos"])
         self.assertTrue(ed["foo"])
         self.assertEquals(ed.expired(), ["foo"])
+        ed.cleanup()
+        self.assertTrue("foo" not in ed)
+        self.assertTrue("foos" in ed)
+
 
 
 if __name__ == "__main__":
