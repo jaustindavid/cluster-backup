@@ -12,9 +12,10 @@ for multiple filesystems (contexts), by proxying to a Servlet per
 
 One Servlet per filesystem to run the per-fs scanner
 
-The Server will start a handler thread for each incoming 
-connection; that thread just calls into the relevant servlet
-calls should be VERY FAST, they're just clients checking in
+The Server will *not* start a handler thread for each incoming 
+connection; a connection just calls into the relevant servlet.
+Calls should be VERY FAST, they're just clients checking in.
+It's TCP datagrams, basically.
 
 internal data:
   files[filename][backup client, backup client ... ]
@@ -25,13 +26,6 @@ state(s), and I'll confirm it, when I start up.
 TODO: 
 * return the rsync commands needed to rebuild a given source
 * coverage > 100%
-
-2018-08-23 04:38:17,180 [Clientlet 9a1db81e] {'b11de736': 'available', '9707ad39': 'available', '736ef407': 'available'}
-2018-08-23 04:38:17,180 [Clientlet 9a1db81e] used 4.854G of 6.000G
-2018-08-23 04:38:17,181 [Clientlet 9a1db81e] sending request @@ b11de736 @@ 9a1db81e @@ 1231028224
-2018-08-23 04:38:17,181 [Clientlet 9a1db81e] received '__none__'
-2018-08-23 04:38:17,181 [Clientlet 9a1db81e] ret=__none__, of type <class 'comms.Communique'>
-2018-08-23 04:38:18,182 [Clientlet 9a1db81e] stepping again
 """
 
 
@@ -66,9 +60,6 @@ class Servlet(Thread):
         for filename, stuff in self.scanner.items():
             if not filename in self.files:
                 self.files[filename] = []
-        # for filename in self.files.keys():
-        #     if not self.scanner.states.contains_p(filename):
-        #         del self.files[filename]
 
 
     def stop(self):
@@ -113,14 +104,12 @@ class Servlet(Thread):
         self.logger.debug(f"{client} claims file {filename}")
         if checksum != filestate["checksum"]:
             self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
-            return Communique("NACK")
-            return ("NACK",)
+            return Communique("NACK", truthiness=False)
 
         if client not in self.files[filename]:
             self.files[filename].append(client)
             self.claims += 1
         return Communique("ack")
-        return ("ack",)
 
 
     # client releases their claim on filename
@@ -132,7 +121,6 @@ class Servlet(Thread):
             self.files[filename].remove(client)
             self.drops += 1
         return Communique("ack")
-        return ("ack",)
 
 
     # client wants a file: return the least-served which isn't on client
@@ -210,32 +198,6 @@ class Servlet(Thread):
             return Communique("__none__", truthiness=False)
 
 
-    def DEADrequest(self, args):
-        client, sizehint = args[:2]
-        response = self.underserved([client])
-        if response:
-            # underserved files: send largest for the client
-            filename = response[0]
-            self.logger.debug(f"request gets {filename} for client {client}")
-            if filename is not None:
-                filestate = self.scanner.get(filename)
-                size = filestate["size"]
-                return Communique(filename, size)
-                return (filename, str(size))
-            for filename in sorted(self.files, 
-                                key=lambda key: len(self.files[key])):
-                # print(f"considering {filename} for {client}")
-                if client not in self.files[filename]:
-                    filestate = self.scanner.get(filename)
-                    size = filestate["size"]
-                    return Communique(filename, size)
-                    return (filename, str(size))
-        return None
-
-
-    def nclients(self, filename):
-        return len(self.files[filename])
-
 
     # return a file which needs a backup, but is NOT held
     # by client
@@ -284,8 +246,8 @@ class Servlet(Thread):
     """ return one of (in order of preference):
             underserved: I need some coverage from you
             available  : you COULD take some of my files, NBD
-            just right : you have all my files, none are overserved
             overserved : I've got more than enough coverage, you can drop some
+            just right : you have all my files, none are overserved
     """
     def status(self, args):
         client = args[0]
@@ -298,6 +260,7 @@ class Servlet(Thread):
         return "just right"
 
 
+    # handle a datagram request: returns a string
     def handle(self, action, args):
         self.logger.debug(f"requested: {action} ({args})")
         actions = {"request":       self.request,
@@ -310,9 +273,6 @@ class Servlet(Thread):
         response = actions[action](args)
         self.logger.debug(f"responding: {type(response)}: {response}")
         return str(response)
-        if not response:
-            return "__none__"
-        return " @@ ".join(response)
 
 
 class Server:
