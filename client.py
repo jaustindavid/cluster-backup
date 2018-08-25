@@ -196,13 +196,12 @@ class Clientlet(Thread):
             self.logger.debug(f"I already have {filename}")
             # stomp on filename -- give him everything
             # TODO: send this as one big list (maybe NBD)
-            for filename in self.scanners[source_context].keys():
+            for filename in list(self.scanners[source_context].keys()):
                 self.claim(source_context, filename, dropping=True)
             return
 
         # 1: build the filenames (full path) for source + dest
-        source = config.path_for(self.config.get(source_context, "source")) + \
-                                    "/" + filename
+        source = self.config.get(source_context, "source") + "/" + filename
         dest_path = f"{self.path}/{source_context}"
         dest = f"{dest_path}/{filename}"
 
@@ -285,6 +284,8 @@ class Clientlet(Thread):
     # mssage: <command> @@ server @@ <client> @@ <args>
     # like "underserved @@ <server> @@ <client>" 
     #   or "claim @@ <server> @@ <client> @@ <filename>"
+    #
+    # server can defer reqeusts with "n/a"; if so, just keep trying
     def send(self, source_context, command, *args):
         ADDRESS = self.sources[source_context]
         PORT = int(self.config.get("global", "PORT", "5005"))
@@ -295,7 +296,7 @@ class Clientlet(Thread):
         if len(args) > 0:
             message += " @@ " + " @@ ".join(args)
         # self.logger.debug(f"{message} -> {ADDRESS}:{PORT}:/{source_context}")
-  
+
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.connect((ADDRESS, PORT))
@@ -310,10 +311,12 @@ class Clientlet(Thread):
             data = data.decode()
         except BrokenPipeError:
             data = "__none__"
-            self.logger.debug(f"{self.context} got that broken pipe")
+            self.logger.exception(f"{self.context} got that broken pipe")
 
         s.close()
         self.logger.debug(f"received '{data}'")
+        if data == "n/a":
+            data = None  # servlet not ready; treat like conn failure
         ret = comms.Communique.build(data, negatives=("__none__", "None"))
         self.logger.debug(f"ret={ret}, of type {type(ret)}")
         return ret
