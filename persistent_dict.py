@@ -79,7 +79,8 @@ class PersistentDict:
         self.mkdir(filename)
         with bz2.open(f"{filename}.tmp", "w") as statefile:
             # json.dump(self.data, statefile, sort_keys=True, indent=4)
-            statefile.write(json.dumps(self.data).encode('utf-8'))
+            statefile.write(json.dumps(self.data, \
+                        sort_keys=True, indent=4).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
         self.dirty = False
 
