@@ -1,7 +1,7 @@
 #!/bin/sh
 
 echo "removing state files"
-find test -name .cb\*.json\* -print -exec rm {} \;
+find ~/src/cb/test -name .cb\*.json\* -print -exec rm {} \;
 
 echo "removing backup stuff"
-rm -vr test/backup?/*
+rm -vr ~/src/cb/test/backup?/*
