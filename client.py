@@ -202,6 +202,10 @@ class Clientlet(Thread):
 
         # 1: build the filenames (full path) for source + dest
         source = self.config.get(source_context, "source") + "/" + filename
+        src_host = config.host_for(source)
+        hostname = config.host_for(self.config.get(self.context, "backup"))
+        if src_host == hostname: # a local copy, just use path
+            source = config.path_for(source)
         dest_path = f"{self.path}/{source_context}"
         dest = f"{dest_path}/{filename}"
 
