@@ -13,7 +13,7 @@ pd.closeTransaction()
 TODO: make me more like a dict / addressible
 """
 
-import os, json, logging
+import os, json, logging, threading
 from utils import logger_str
 import elapsed, config
 
@@ -108,13 +108,20 @@ class PersistentDict:
 
 
     def set(self, key, value):
+        lock = threading.RLock()
+        lock.acquire()
         self[key] = value
+        lock.release()
+
 
     def __setitem__(self, key, value):
+        lock = threading.RLock()
+        lock.acquire()
         self.data[key] = value
         self.touch(key)
         self.dirty = True
         self.lazy_write()
+        lock.release()
 
 
     def __getitem__(self, key):
@@ -132,10 +139,16 @@ class PersistentDict:
 
 
     def keys(self):
-        return self.data.keys()
+        lock = threading.RLock()
+        lock.acquire()
+        keys = self.data.keys()
+        lock.release()
+        return keys
 
 
     def delete(self, key):
+        lock = threading.RLock()
+        lock.acquire()
         try:
             del self.data[key]
             self.lazy_write()
@@ -143,13 +156,17 @@ class PersistentDict:
         except KeyError:
             self.logger.exception("whoa")
             pass
+        lock.release()
 
 
     def items(self):
+        lock = threading.RLock()
+        lock.acquire()
         if self.metadata_key in self.data:
             dupe = self.data.copy()
             del dupe[self.metadata_key]
             return dupe.items()
+        lock.release()
         return self.data.items()
             
 
