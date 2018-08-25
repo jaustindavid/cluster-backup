@@ -35,16 +35,27 @@ class TestTimerMethods(unittest.TestCase):
     def test_ExpiringDict(self):
         ed = ExpiringDict(0.5)
         ed["foo"] = "this doesn't matter"
-        self.assertFalse(ed["foo"])
+        self.assertTrue(ed["foo"])
         time.sleep(0.25)
         ed["foos"] = "this doesn't matter either"
         time.sleep(0.3)
-        self.assertFalse(ed["foos"])
-        self.assertTrue(ed["foo"])
+        self.assertTrue(bool(ed["foos"]))
+        self.assertFalse(bool(ed["foo"]))
         self.assertEquals(ed.expired(), ["foo"])
         ed.cleanup()
         self.assertTrue("foo" not in ed)
         self.assertTrue("foos" in ed)
+
+
+    def test_delete(self):
+        ed = ExpiringDict(0.25)
+        ed["foo"] = "this doesn't matter"
+        self.assertTrue(ed["foo"])
+        del ed["foo"]
+        self.assertFalse("foo" in ed)
+        with self.assertRaises(KeyError):
+            print(ed["foo"])
+
 
 
 

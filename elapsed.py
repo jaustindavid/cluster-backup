@@ -39,11 +39,10 @@ class ElapsedTimer:
         return False
 
 
-# TODO
 """
     ed = ExpiringDict(3)
     ed[1] = "whatever" # set or reset a timer 
-    if ed[1]:   # True when this timer expires
+    if ed[1]:   # True while this hasn't expired
 
     ed.expired() # list of expired keys
 """
@@ -51,33 +50,33 @@ class ExpiringDict:
     def __init__(self, expiry, sense=True):
         self.expiry = expiry
         self.sense = sense  # what to return on expiration
-        self.data = {}
+        self.timers = {}
     
 
     def __getitem__(self, key):
-        if self.data[key].elapsed() > self.expiry:
+        if self.timers[key].elapsed() < self.expiry:
             return self.sense
         else:
             return not self.sense
 
 
     def __setitem__(self, key, value):
-        if key in self.data:
-            self.data[key].reset()
+        if key in self.timers:
+            self.timers[key].reset()
         else:
-            self.data[key] = ElapsedTimer()
+            self.timers[key] = ElapsedTimer()
 
 
     def __delitem__(self, key):
-        del self.data[key]
+        del self.timers[key]
 
 
     def __contains__(self, key):
-        return key in self.data
-
+        return key in self.timers
+    
 
     def expired(self):
-        return [ key for key in self.data if self[key] ]
+        return [ key for key in self.timers if not self[key] ]
 
 
     def cleanup(self):
