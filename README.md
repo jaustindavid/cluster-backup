@@ -4,6 +4,7 @@ a minimal-configuration, agent-based solution for backups: specify source ("serv
 Intended usage: many (potentially small) clients around the network holding parts of a few (potentially very large) filesystems.
 
 Config file:
+<pre>
 options: PORT: 5005
 server: host1:/path/to/directory
 copies: 2
@@ -13,6 +14,7 @@ backup: host3:/path/for/backups
 size: 100gb
 backup: host4:/path/for/backups
 size: 1t
+</pre>
 
 Files are stored whole / no mangling, so the smallest backup host must have more space than the largest single file.  A single host stores one copy of a file, so if you want N copies please have (at least) N backup hosts.
 
