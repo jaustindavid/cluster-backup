@@ -13,7 +13,7 @@ pd.closeTransaction()
 TODO: make me more like a dict / addressible
 """
 
-import os, json, logging, threading
+import os, json, logging, threading, bz2
 from utils import logger_str
 import elapsed, config
 
@@ -54,8 +54,10 @@ class PersistentDict:
             self.logger.debug("whoopsie, no file")
             return None
         try:
-            with open(filename, "r") as statefile:
-                self.data = json.load(statefile)
+        # https://stackoverflow.com/questions/39450065/python-3-read-write-compressed-json-objects-from-to-gzip-file
+            with bz2.open(filename, "r") as statefile:
+                # self.data = json.load(statefile)
+                self.data = json.loads(statefile.read().decode('utf-8'))
                 if self.data is None:
                     self.logger.debug("json.load() -> self.data is None")
                     self.data = {}
@@ -75,16 +77,18 @@ class PersistentDict:
             filename = self.masterFilename
         # self.logger.debug(f"writing data: {filename}")
         self.mkdir(filename)
-        with open(f"{filename}.tmp", "w") as statefile:
-            json.dump(self.data, statefile, sort_keys=True, indent=4)
+        with bz2.open(f"{filename}.tmp", "w") as statefile:
+            # json.dump(self.data, statefile, sort_keys=True, indent=4)
+            statefile.write(json.dumps(self.data).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
         self.dirty = False
 
 
     def lazy_write(self):
-        if self.lazy_timer == 0 or self.timer.once_every(self.lazy_timer):
+        if self.lazy_timer == 0 or self.timer.elapsed() > self.lazy_timer:
             # self.logger.debug("lazy timer expired; writing")
             self.write()
+            self.timer.reset()
 
 
     def mkdir(self, filename):
