@@ -5,10 +5,14 @@ I scan a local folder, populate a persistent_dict
 I maintain file state for that folder; a Clientlet
     uses me to know what files he owns
 
-TODO: make me a subclass of PersistentDict
+TODONE: 
+    make me a subclass of PersistentDict
+TODO:
+    return directories (trailing /)
+
 """
 
-import os, logging
+import os, logging, threading
 import config, utils
 from persistent_dict import PersistentDict
 from utils import logger_str
@@ -26,9 +30,6 @@ class Scanner(PersistentDict):
         self.config = config.Config.instance()
         self.pd_filename = f".cb.{context}.json"
         lazy_write = self.config.get(context, "LAZY WRITE", 5)
-        # self.logger.debug(f"lazy write: {lazy_write}")
-        # self.states = PersistentDict(f"{self.path}/{self.pd_filename}", \
-        #                                 lazy_write)
         super().__init__(f"{self.path}/{self.pd_filename}", lazy_write) 
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
         self.logger.setLevel(logging.INFO)
@@ -78,7 +79,10 @@ class Scanner(PersistentDict):
         # cwd = os.getcwd()  # this behaves badly in a Thread
         # self.logger.debug(f"coming from {cwd}")
         # os.chdir(self.path)
+        lock = threading.RLock()
+        lock.acquire()
         changed = self.scandir(".", ignorals)
+        lock.release()
         # os.chdir(cwd)
         if self.removeDeleteds():
             changed = True
@@ -107,24 +111,23 @@ class Scanner(PersistentDict):
             if self.ignoring(ignorals, dirent):
                 continue
             fqde = f"{path}/{dirent}"
-            # self.logger.debug(f"scanning {fqde}")
-            if os.path.isdir(fqde):
+            self.logger.debug(f"stat(3)ing {fqde}")
+            if os.path.isdir(f"{self.path}/{fqde}"):
+                self.logger.debug(f"is a directory")
                 if self.scandir(fqde, ignorals, gen_checksums):
                     changed = True
                 continue
-            # if not self.states.contains_p(fqde):
             if not self.contains_p(fqde):
                 # no FQDE: (maybe) checksum & write it
                 self.logger.debug(f"new: {fqde}")
                 actualState = FileState(fqde, gen_checksums, prefix=self.path)
-                # self.states.set(fqde, actualState.to_dict())
                 self[fqde] = actualState.to_dict()
+                self.logger.debug(self[fqde]["size"])
                 changed = True
             else:
                 # FQDE: no checksum...
                 # TODO: this is broken ??
                 actualState = FileState(fqde, False, prefix=self.path)
-                # if actualState.maybechanged(self.states.get(fqde)):
                 if actualState.maybechanged(self[fqde]):
                     # ... maybe changed.  (maybe) checksum + write
                     self.logger.debug(f"changed: {fqde}")
@@ -132,12 +135,10 @@ class Scanner(PersistentDict):
                     self.logger.debug(f"new: {actualState}")
                     actualState = FileState(fqde, gen_checksums, 
                                             prefix=self.path)
-                    # self.states.set(fqde, actualState.to_dict())
                     self[fqde] = actualState.to_dict()
                     changed = True
                 else:
                     # ... probably same.  preserve the old one (touch it)
-                    # self.states.touch(fqde)
                     self.touch(fqde)
         return changed
 
@@ -147,7 +148,6 @@ class Scanner(PersistentDict):
             pathname = f"{self.path}/{filename}"
             self.logger.debug(f"dropping {filename}; before={self.consumption()}")
             assert os.path.exists(pathname)
-            # self.states.delete(filename)
             self.delete(filename)
             os.remove(pathname)
             self.scan()
@@ -163,7 +163,6 @@ class Scanner(PersistentDict):
         # for fqde in self.states.clean_keys():
         for fqde in self.clean_keys():
             self.logger.debug(f"removed: {fqde}")
-            # self.states.delete(fqde)
             self.delete(fqde)
             changed = True
         # self.states.write()

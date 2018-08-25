@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import unittest, scanner, config, logging, os
+import unittest, scanner, config, logging, os, shutil
 import subprocess
 
 class TestMethods(unittest.TestCase):
@@ -10,16 +10,16 @@ class TestMethods(unittest.TestCase):
                             level=logging.DEBUG)
         if not os.path.exists("/tmp/scanner-test"):
             os.mkdir("/tmp/scanner-test")
-        subprocess.call(["dd", "if=/dev/zero", "of=/tmp/scanner-test/one.zero", "bs=1024", "count=10"])
-        subprocess.call(["dd", "if=/dev/zero", "of=/tmp/scanner-test/two.zero", "bs=1024", "count=10"])
+            cwd = os.getcwd()
+            os.chdir("/tmp/scanner-test")
+            subprocess.call(["tar", "xfvz", "/Users/austind/src/cb/scanner-test.tgz"])
+            os.chdir(cwd)
 
 
     def tearDown(self):
-        if os.path.exists("/tmp/scanner-test/one.zero"):
-            os.remove("/tmp/scanner-test/one.zero")
-        os.remove("/tmp/scanner-test/two.zero")
-        os.remove("/tmp/scanner-test/.cb.test scanner.json")
-        os.rmdir("/tmp/scanner-test")
+        # shutil.rmtree('/tmp/scanner-test')
+        os.remove("/tmp/scanner-test/.cb.test_scanner.json")
+        pass
 
 
     def test_config(self):
@@ -35,13 +35,12 @@ class TestMethods(unittest.TestCase):
         filename = list(s.keys())[0]
         self.assertTrue(os.path.exists(f"{path}/{filename}"))
 
+
     def test_drop(self):
-        s = scanner.Scanner("test scanner", "/tmp/scanner-test")
+        s = scanner.Scanner("test_scanner", "/tmp/scanner-test")
         s.scan()
         files = list(s.keys())
-        self.assertEquals(len(files), 2)
-        self.assertEquals(s["./one.zero"]["size"], 10240)
-        self.assertEquals(s.consumption(), 20480)
+        self.assertEquals(s["source3/1kb.zero"]["size"], 1024)
         s.drop("./one.zero")
         self.assertFalse(os.path.exists("/tmp/scanner-test/one.zero"))
         print(s.keys())
