@@ -107,14 +107,61 @@ class TestMethods(unittest.TestCase):
 
     def test_append(self):
         c = comms.Communique("command", "source", "client")
+        print(str(c))
         args = list()
         c.append(args)
         self.assertEquals(str(c), "command @@ source @@ client")
-        args = [ "filename" ]
-        c.append(args)
+        c.append("filename")
         self.assertEquals(str(c), "command @@ source @@ client @@ filename")
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        c = comms.Communique("first")
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        c.append("second")
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
 
 
+    def test_eq(self):
+        c = comms.Communique("ack")
+        self.assertTrue(c == "ack")
+
+    def test_for(self):
+        data = [ "ayeeeee", "beeeee", "seeeeee", "duheeeeeee" ]
+        c = comms.Communique(data)
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        for item in c:
+            print(f"item: {item}")
+        data = [ "one thing" ]
+        c = comms.Communique(data)
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        i = 0
+        for item in c:
+            i += 1
+            print(f"item: {item}")
+        self.assertEquals(i, 1)
+        data = "one string"
+        c = comms.Communique(data)
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        i = 0
+        for item in c:
+            i += 1
+            print(f"item: {item}")
+        self.assertEquals(i, 1)
+        c.append("plus one more")
+        print(f"len(c) = {len(c)}")
+        print(f"str(c) = {str(c)}")
+        i = 0
+        for item in c:
+            i += 1
+            print(f"item: {item}")
+        self.assertEquals(i, 2)
+
+        
 
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMethods)

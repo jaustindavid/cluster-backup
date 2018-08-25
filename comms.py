@@ -18,6 +18,12 @@ it should not act like the silly list/string thing
 
 spaced double-ampersands are special, by default.  Or kwargs
 special to something else: special=" @@ "
+
+TODO:
+    - Communique.data is whatever
+    - Communique.build takes serialized json data and deserializes
+    - Communique.__str__ returns serialized json
+    - Communique.__getitem__ exposes data
 """
 class Communique:
     def __init__(self, *contents, **kwargs):
@@ -33,7 +39,7 @@ class Communique:
 
         # print(f"I am {contents}")
         if len(contents) > 1:
-            self.contents = contents
+            self.contents = list(contents)
         elif len(contents) == 1:
             # print(f"I am {contents[0]}: len={len(contents[0])}")
             # self.contents = self.unroll(contents)
@@ -42,13 +48,19 @@ class Communique:
             self.contents = None
 
 
+    # this is terrible, DEAD 
     ''' append 0 or more args to my contents '''
     def append(self, *args):
-        args = list(itertools.chain.from_iterable(args))
-        if len(args) > 0:
-            if type(self.contents) is not list:
-                self.contents = list(self.contents)
+        print(f"len({args}) = {len(args)}")
+        if len(args) == 1 and not args[0]:
+            return
+        if not self.contents:
+            self.contents = list(args)
+        elif type(self.contents) is str:
+            self.contents = [ self.contents ] + list(args)
+        else:
             self.contents += args
+
 
 
     def __getitem__(self, key):
@@ -90,6 +102,17 @@ class Communique:
         return len(self.contents)
 
 
+    def __eq__(self, item):
+        return item == str(self)
+
+
+    def __iter__(self):
+        if len(self) == 1:
+            return iter([ str(self.contents) ])
+        else:
+            return iter(self.contents)
+
+
     @staticmethod
     def build(string, **kwargs):
         if "special" in kwargs:
@@ -100,3 +123,8 @@ class Communique:
             # print(f"splitting {string} with {special}")
             return Communique(string.split(special))
         return Communique(string, **kwargs)
+
+
+if __name__ == "__main__":
+    l = list(flatten("a", "list", ["of", "things"]))
+    print(l)
