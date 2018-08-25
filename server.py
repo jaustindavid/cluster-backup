@@ -2,8 +2,7 @@
 
 import sys, random, time, socket, logging, os
 from threading import Thread
-import config, elapsed, scanner, persistent_dict
-from utils import logger_str
+import config, elapsed, scanner, persistent_dict, utils, locker
 from comms import Communique
 
 """
@@ -25,7 +24,11 @@ state(s), and I'll confirm it, when I start up.
 
 TODO: 
 * return the rsync commands needed to rebuild a given source
+* test restoration / recovery
 * coverage > 100%
+* collapse the audit: files with common client lists should be 1 line
+* arbitrarily long inventory() chain
+* encourage clients to balance among themselves
 """
 
 
@@ -34,26 +37,30 @@ class Servlet(Thread):
         super().__init__()
         self.context = context
         
-        self.logger = logging.getLogger(logger_str(__class__) + " " + context)
-        self.logger.setLevel(logging.INFO)
+        self.logger = logging.getLogger(utils.logger_str(__class__) \
+                        + " " + context)
+        # self.logger.setLevel(logging.INFO)
         self.config = config.Config.instance()
         self.copies = int(self.config.get(self.context, "copies", 2))
         self.path = config.path_for(self.config.get(self.context, "source"))
         self.scanner = scanner.Scanner(self.context, self.path)
 
-        self.files = dict() # NOT persistent!
+        self.files = dict() # NOT persistent!  On startup assume nothing
+        self.drains = elapsed.ExpiringDict(300) # NOT persistent!
+        self.locks = locker.Locker(5)
+            # TODO: timers should relate to a configurable cycle time
         self.bailout = False
-        self.drops = 0
-        self.claims = 0
+        self.stats = {'claims':0, 'drops':0}
 
 
+    # Server will call into my datagram functions; I just brood
     def run(self):
         self.bailout = False
         while not self.bailout:
             self.scanner.scan()
             self.update_files()
-            self.audit()
-            time.sleep(10)
+            self.heartbeat()
+            time.sleep(10)  # TODO: make configurable
 
     
     def update_files(self):
@@ -66,17 +73,20 @@ class Servlet(Thread):
         self.bailout = True
 
 
-    def audit(self):
-        if self.claims > 0:
-            ratio = 100-100*self.drops/self.claims
+    def heartbeat(self):
+        if self.stats['claims'] > 0:
+            ratio = 100-100*self.stats['drops']/self.stats['claims']
         else:
             ratio = 0
-        message = f"audit: need {self.copies}; {ratio:5.2f}% {self.drops}:{self.claims} drops:claims\n"
+        message = f"Efficiency: {ratio:5.2f}%, " \
+                + f"{self.stats['drops']}:{self.stats['claims']} drops:claims\n"
         ncopies = {}
+        clientelle = {}
         coverage = 0
+        nblocks = 0
         for filename in self.files:
-            # self.logger.debug(f"{filename}: {len(self.files[filename])} copies")
             count = len(self.files[filename])
+            nblocks += count
             if count not in ncopies:
                 ncopies[count] = 1
             else:
@@ -86,15 +96,48 @@ class Servlet(Thread):
             elif count > 0:
                 coverage += count/self.copies
         if len(self.files) > 0:
-            self.logger.info(f"coverage: {100*coverage/len(self.files):5.2f}%")
-
-        for count in sorted(ncopies.keys(), reverse=True):
-            message += f"{count} copies: {ncopies[count]} files, "
-        message += "\n"
-        for filename in self.files:
-            message += f"{filename}:{len(self.files[filename])} {sorted(self.files[filename])}\n"
+            # "coverage" shows the portion of dataset with "enough" copies
+            # ... but > 100%, shows the amount of copies out there 
+            #   :. coverage = 150% -> 1.5x requested number of copies
+            #   ... not neccessarily "1.5 copies of everything"
+            if coverage == len(self.files): 
+                # all files covered; show the *actual* coverge
+                coverage = nblocks / (len(self.files) * self.copies)
+                message += f"coverage: {nblocks / (len(self.files) * self.copies):5.1f}x"
+            else:
+                message += f"coverage: {100*coverage/len(self.files):5.2f}%"
+            message += f" of {self.copies}\n"
         self.logger.info(message)
 
+
+    def audit(self):
+        self.heartbeat()
+        message = "\n"
+        ncopies = {}
+        clientelle = {}
+        coverage = 0
+        nblocks = 0
+        for filename in self.files:
+            # self.logger.debug(f"{filename}: {len(self.files[filename])} copies")
+            clients = " + ".join(sorted(self.files[filename]))
+            if not clients:
+                clients = "none"
+            if clients not in clientelle:
+                clientelle[clients] = 1
+            else:
+                clientelle[clients] += 1
+        for clients in sorted(clientelle.keys(), \
+                            key = lambda c : len(c), \
+                            reverse = True):
+            message += f"[{clients}]: {clientelle[clients]} files\n"
+        self.logger.info(message)
+
+
+    def dump_files(self, filelist):
+        message = ""
+        for filename in filelist:
+            message += f"{filename}:{len(self.files[filename])} "
+        self.logger.debug(message)
 
 
     # client claims filename (not a lock)
@@ -108,7 +151,8 @@ class Servlet(Thread):
 
         if client not in self.files[filename]:
             self.files[filename].append(client)
-            self.claims += 1
+            self.stats['claims'] += 1
+        self.release(filename)
         return Communique("ack")
 
 
@@ -119,14 +163,36 @@ class Servlet(Thread):
         if filename and len(self.files) > 0 and filename in self.files \
             and client in self.files[filename]:
             self.files[filename].remove(client)
-            self.drops += 1
+            self.stats['drops'] += 1
         return Communique("ack")
+
+
+    # client wants to (gracefully) drop a file
+    # ... just set a timer.  Client should re-ask if it's OK
+    def drain(self, args):
+        client, filename = args[:2]
+        self.logger.debug(f"client: {client} requests drain {filename}")
+        self.drains[f"{client}:{filename}"] = 1
+        return Communique("ack")
+
+
+    # client asks for an inventory of the things I think he has
+    # returns a list of filenames
+    def inventory(self, args):
+        client = args[0]
+        self.logger.debug(f"{client} wants inventory")
+        files = []
+        for filename in self.files:
+            if client in self.files[filename]:
+                files.append(filename)
+            else:
+                self.logger.debug(f"{client} not in {filename}")
+        return Communique(files)
 
 
     # client wants a file: return the least-served which isn't on client
     # but, if possible, match a size-hint (if they ask for 100mb, try not
     # to offer 1gb)
-
     def underserved_for(self, client):
         files = []
         for filename in self.files:
@@ -166,20 +232,91 @@ class Servlet(Thread):
             return files
 
 
-# return a file:
-# - filter out files held by client
-# - sort by underserved (fewest first)
-# - sort by size (largest first)
-# return the largest file under sizehint
+    def lockname(self, filename):
+        return utils.hash(filename)
+
+
+    # a temporary hold on a file we've offered to a client,
+    # to prevent us (briefly) offering to another
+    def hold(self, filename, client):
+        # self.logger.debug(f"{filename} given to {client} (maybe)")
+        self.locks[self.lockname(filename)] = client
+
+
+    # release a hold 
+    def release(self, filename):
+        if self.lockname(filename) in self.locks:
+            del self.locks[self.lockname(filename)]
+
+
+    # is there a hold? 
+    def held(self, filename, client):
+        ret = self.lockname(filename) in self.locks \
+                and self.locks[self.lockname(filename)] != client
+        # self.logger.debug(f"{filename} lock held against {client} ? {ret}")
+        return ret
+
+
+    # return least-served file smaller than sizehint
+    def least_served(self, candidates, sizehint):
+        if self.scanner[candidates[0]]["size"] > sizehint:
+            # they're all too big; pick one
+            return random.choice(candidates)
+        
+        for filename in sorted(candidates, reverse=True, \
+                        key = lambda f: self.scanner[f]["size"]):
+            if self.scanner[filename]["size"] < int(sizehint):
+                return filename
+        # fallthrough: returns the last checked file
+        return filename
+
+
+    # serve a file request: the (if possible) largest, not-locked,
+    # unowned-by-client file
+    #  ANY underserved file is a candidate
+    def request(self, args):
+        client, sizehint = args[:2]
+        self.update_files()  # TODO: fix the race condition behind this
+        filelist = [ filename for filename in self.scanner.keys() \
+                        if client not in self.files[filename] \
+                            and not self.held(filename, client) ]
+        filelist = sorted(filelist, key=lambda f: self.scanner[f]["size"])
+        filelist = sorted(filelist, key=lambda f: len(self.files[f]))
+        self.logger.debug(f"pulled a list for {client}:")
+        self.dump_files(filelist)
+        if not filelist: # no files for this client
+            return Communique("__none__", negatives=("__none__",))
+        target = len(self.files[filelist[0]]) + 1
+        if target < self.copies:  # implies underserved; expand to 
+            target = self.copies  # consider any underserved file
+        candidates = [ filename for filename in filelist \
+                        if len(self.files[filename]) < target ]
+        self.logger.debug(f"targeted list for {client}:")
+        self.dump_files(candidates)
+        filename = self.least_served(candidates, int(sizehint))
+        self.logger.debug(f"least_served gives {filename}")
+        if filename:
+            self.hold(filename, client)
+            return Communique(filename, str(self.scanner[filename]["size"]))
+        else:
+            return Communique("__none__", negatives=("__none__",))
+
+
+# return a file not held by client
+# - if any unserved exist, return one 
+#   - small enough, if possible
+# - one of the least-served
 #   but if I have to, return an oversized file
 #   (to inspire the agent to MAYBE rebalance)
 
-    def request(self, args):
+    def DEADrequest(self, args):
         client, sizehint = args[:2]
         self.logger.debug("looking for an underserved file")
         files = self.underserved_for(client)
         self.logger.debug(files)
 
+        # underserved files
+        self.logger.debug(f"underserved files for {client}")
         if files:
             filename = random.choice(files)
             self.logger.debug(f"trying to return {filename}")
@@ -205,7 +342,7 @@ class Servlet(Thread):
     def underserved(self, args):
         client = args[0]
         self.logger.debug(f"Underserved for {client}?")
-        self.audit()
+        # self.audit()
         files = []
         for filename in self.files:
             if client not in self.files[filename] and \
@@ -228,14 +365,14 @@ class Servlet(Thread):
         client = args[0]
         files = {}
         for filename in self.files:
-            self.logger.debug(f"{filename}: {len(self.files[filename])}/{self.copies}")
+            # self.logger.debug(f"{filename}: {len(self.files[filename])}/{self.copies} {self.files[filename]}")
             if client in self.files[filename]: 
-                self.logger.debug(f"client match for {filename}")
+                # self.logger.debug(f"client match for {filename}")
                 if len(self.files[filename]) > self.copies:
-                    self.logger.debug(f"overserved file: {filename}")
+                    # self.logger.debug(f"overserved file: {filename}")
                     files[filename] = len(self.files[filename])
         if len(files.keys()) > 0:
-            filenames = sorted(files.keys(), key=lambda x: files[x])
+            filenames = sorted(files.keys(), key=lambda x: files[x], reverse=True)
             # TODO: return the whole list
             return Communique(filenames)
         else:
@@ -260,18 +397,26 @@ class Servlet(Thread):
         return "just right"
 
 
+    def heartbeep(self, args):
+        client = args[0]
+        self.logger.info(f"heartbeep from {client}: {args}")
+
+
     # handle a datagram request: returns a string
     def handle(self, action, args):
         self.logger.debug(f"requested: {action} ({args})")
         actions = {"request":       self.request,
                     "claim":        self.claim,
                     "unclaim":      self.unclaim,
+                    "drain":        self.drain,
+                    "inventory":    self.inventory,
                     "overserved":   self.overserved,
                     "underserved":  self.underserved,
-                    "status":       self.status
+                    "status":       self.status,
+                    "heartbeep":    self.heartbeep
                    }
         response = actions[action](args)
-        self.logger.debug(f"responding: {type(response)}: {response}")
+        self.logger.debug(f"responding: {action} {args} -> {response}")
         return str(response)
 
 
@@ -279,7 +424,7 @@ class Server:
     def __init__(self, hostname):
         self.hostname = hostname
         self.config = config.Config.instance()
-        self.logger = logging.getLogger(logger_str(__class__))
+        self.logger = logging.getLogger(utils.logger_str(__class__))
         self.logger.setLevel(logging.INFO)
         self.contexts = self.get_contexts()
         self.servlets = {}
@@ -301,22 +446,22 @@ class Server:
             self.servlets[context] = Servlet(context)
 
 
+    def heartbeep(self, client, args):
+        self.logger.debug(f"heartbeep from {client}: {args}")
+
+
     # client sends to a specific server context
     # action @@ server context @@ client context @@ arguments
     # action: context arg1, arg2
     def handle(self, request):
-        # self.logger.debug(f"requested: {request}")
-        tokens = request.split(" @@ ")
-        # self.logger.debug(tokens)
+        tokens = request.split(" @@ ") # TODO: Communique.build()
         action, server_context = tokens[:2]
         args = tokens[2:]
         if server_context not in self.servlets:
             return "__none__"
         self.logger.debug(f"acting: {server_context} => {action}({args})")
-        # print(self.servlets)
         response = self.servlets[server_context].handle(action, args)
 
-        # print(f"responding: {response}")
         if not response:
             return "__none__"
         return str(response)
@@ -326,7 +471,7 @@ class Server:
     def serve(self):
         ADDRESS = self.hostname
         PORT = int(self.config.get("global", "PORT", "5005"))
-        BUFFER_SIZE = 1024
+        BUFFER_SIZE = 1024 # datagrams (inbound) are very small
 
         timer = elapsed.ElapsedTimer()
 
@@ -335,17 +480,20 @@ class Server:
 
         s.bind((ADDRESS, PORT))
         s.listen(10)
-        self.logger.debug(f"Listenging on {PORT}")
+        self.logger.info(f"Server starting, listening on {PORT}")
         while True:
             conn, addr = s.accept()
-            self.logger.debug(f"Connecting address: {addr}")
+            # self.logger.debug(f"Connecting address: {addr}")
             with conn:
-                data = str(conn.recv(1024), 'ascii')
+                data = str(conn.recv(BUFFER_SIZE), 'ascii')
                 if data:
+                    self.logger.debug(b"received {data}")
                     response = bytes(self.handle(data), 'ascii')
+                    self.logger.debug(b"returning {data}")
                 conn.sendall(response)
                 conn.close()
-            if timer.once_every(30):
+            if timer.once_every(10):
+                self.logger.info("Servlet status update: ")
                 for context, servlet in self.servlets.items():
                     servlet.audit()
 
@@ -374,15 +522,18 @@ def getopts():
     options = {}
     options["hostname"] = platform.node()
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "h:c:")
+        opts, args = getopt.getopt(sys.argv[1:], "h:c:v")
     except getopt.GetoptError as err:
         print(err)
         sys.exit(1)
+    options["verbose"] = False
     for opt, arg in opts:
         if opt == "-c":
             options["configfile"] = arg
         elif opt == "-h":
             options["hostname"] = arg
+        elif opt == "-v":
+            options["verbose"] = True
         else:
             assert False, "Unhandled option"
 
@@ -393,9 +544,11 @@ def main(args):
     logger = logging.getLogger(__name__)
     logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s',
                             level=logging.DEBUG)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     cfg = config.Config.instance()
     options = getopts()
+    if options["verbose"]:
+        logger.setLevel(logging.DEBUG)
     assert os.path.exists(options["configfile"])
     assert type(options["hostname"]) is str
     cfg.init(options["configfile"], "source", "backup")
