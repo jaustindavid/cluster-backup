@@ -12,9 +12,9 @@ size: 1g
 backup: localhost:~/src/cb/test/backup2
 size: 1g
 backup: localhost:~/src/cb/test/backup3
-size: 6g
+size: 5g
 backup: localhost:~/src/cb/test/backup4
-size: 1g
+size: 5g
 backup: localhost:~/src/cb/test/backup5
 size: 2g
 backup: localhost:~/src/cb/test/backup6
