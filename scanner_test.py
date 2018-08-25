@@ -12,14 +12,16 @@ class TestMethods(unittest.TestCase):
             os.mkdir("/tmp/scanner-test")
             cwd = os.getcwd()
             os.chdir("/tmp/scanner-test")
-            subprocess.call(["tar", "xfvz", "/Users/austind/src/cb/scanner-test.tgz"])
+            subprocess.call(["tar", "xfvz", f"{cwd}/scanner-test.tgz"])
             os.chdir(cwd)
 
 
     def tearDown(self):
-        # shutil.rmtree('/tmp/scanner-test')
-        os.remove("/tmp/scanner-test/.cb.test_scanner.json")
-        pass
+        try:
+            shutil.rmtree('/tmp/scanner-test')
+            os.remove("/tmp/scanner-test/.cb.test_scanner.json.bz2")
+        except FileNotFoundError:
+            pass
 
 
     def test_config(self):
@@ -39,12 +41,14 @@ class TestMethods(unittest.TestCase):
     def test_drop(self):
         s = scanner.Scanner("test_scanner", "/tmp/scanner-test")
         s.scan()
-        files = list(s.keys())
-        self.assertEquals(s["source3/1kb.zero"]["size"], 1024)
+        print(s.items())
+        self.assertEquals(s["./one.zero"]["size"], 10240)
+        self.assertEquals(s["directory/three.zero"]["size"], 10240)
+        self.assertTrue(os.path.exists("/tmp/scanner-test/one.zero"))
+        self.assertEquals(s.consumption(), 30720)
         s.drop("./one.zero")
         self.assertFalse(os.path.exists("/tmp/scanner-test/one.zero"))
-        print(s.keys())
-        self.assertEquals(s.consumption(), 10240)
+        self.assertEquals(s.consumption(), 20480)
 
 
 if __name__ == "__main__":
