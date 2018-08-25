@@ -51,11 +51,16 @@ class Servlet(Thread):
             # TODO: timers should relate to a configurable cycle time
         self.bailout = False
         self.stats = {'claims':0, 'drops':0}
+        self.handling = False
 
 
     # Server will call into my datagram functions; I just brood
     def run(self):
         self.bailout = False
+        # TODO: turbo prescan
+        self.scanner.scan(turbo=True)
+        self.logger.info("Ready to serve")
+        self.handling = True
         while not self.bailout:
             self.scanner.scan()
             self.update_files()
@@ -145,15 +150,20 @@ class Servlet(Thread):
         client, filename, checksum = args[:3]
         filestate = self.scanner.get(filename)
         self.logger.debug(f"{client} claims file {filename}")
-        if checksum != filestate["checksum"]:
+        if filestate["checksum"] == "deferred":
+            self.logger.debug("I have a deferred checksum; let it go (for now)")
+        elif checksum != filestate["checksum"]:
             self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
             return Communique("NACK", truthiness=False)
 
-        if client not in self.files[filename]:
-            self.files[filename].append(client)
-            self.stats['claims'] += 1
-        self.release(filename)
-        return Communique("ack")
+        if filename in self.files:
+            if client not in self.files[filename]:
+                self.files[filename].append(client)
+                self.stats['claims'] += 1
+            self.release(filename)
+            return Communique("ack")
+        else:   # I don't know about this file
+            return Communique("NACK", truthiness=False)
 
 
     # client releases their claim on filename
@@ -404,6 +414,8 @@ class Servlet(Thread):
 
     # handle a datagram request: returns a string
     def handle(self, action, args):
+        if not self.handling:
+            return "n/a"
         self.logger.debug(f"requested: {action} ({args})")
         actions = {"request":       self.request,
                     "claim":        self.claim,
@@ -417,7 +429,7 @@ class Servlet(Thread):
                    }
         response = actions[action](args)
         self.logger.debug(f"responding: {action} {args} -> {response}")
-        return str(response)
+        return str(response) # TODO: return Communique
 
 
 class Server:

@@ -13,7 +13,7 @@ TODO:
 """
 
 import os, logging, threading
-import config, utils
+import config, utils, elapsed
 from persistent_dict import PersistentDict
 from utils import logger_str
 from file_state import FileState
@@ -34,6 +34,18 @@ class Scanner(PersistentDict):
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
         self.logger.setLevel(logging.INFO)
         self.ignored_suffixes = {}
+        self.report_timer = elapsed.ElapsedTimer()
+
+
+    def report(self, restart = False):
+        if restart:
+            self.nfiles = 0
+            self.report_timer.reset()
+            self.report_timer.once_every(5)
+            return
+        self.nfiles += 1
+        if self.report_timer.once_every(15):
+            self.logger.info(f"scanned {self.nfiles} files")
 
 
     def ignore(self, suffix):
@@ -69,6 +81,12 @@ class Scanner(PersistentDict):
 
 
     def scan(self, **kwargs):
+        if "turbo" in kwargs and kwargs['turbo']:
+            turbo = True
+            self.logger.info("Starting \"turbo\" scan")
+        else:
+            turbo = False
+
         if not os.path.exists(self.path):
             self.logger.warn(f"cannot scan: {self.path} does not exist")
             # return True
@@ -81,13 +99,17 @@ class Scanner(PersistentDict):
         # os.chdir(self.path)
         lock = threading.RLock()
         lock.acquire()
-        changed = self.scandir(".", ignorals)
+        self.report(True)
+        gen_checksums = not turbo
+        changed = self.scandir(".", ignorals, gen_checksums)
         lock.release()
         # os.chdir(cwd)
         if self.removeDeleteds():
             changed = True
         # self.states.write() # should be redundant
         self.write() # should be redundant
+        if turbo:
+            self.logger.info("Finished \"turbo\" scan")
         return changed
 
 
@@ -110,8 +132,9 @@ class Scanner(PersistentDict):
         for dirent in sorted(direntries):
             if self.ignoring(ignorals, dirent):
                 continue
+            self.report()
             fqde = f"{path}/{dirent}"
-            self.logger.debug(f"stat(3)ing {fqde}")
+            # self.logger.debug(f"stat(3)ing {fqde}")
             if os.path.isdir(f"{self.path}/{fqde}"):
                 self.logger.debug(f"is a directory")
                 if self.scandir(fqde, ignorals, gen_checksums):
