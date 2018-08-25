@@ -119,7 +119,7 @@ class Communique:
             special = kwargs["special"]
         else:
             special = " @@ "
-        if special in string:
+        if string and special in string:
             # print(f"splitting {string} with {special}")
             return Communique(string.split(special))
         return Communique(string, **kwargs)
