@@ -1,0 +1,3 @@
+options: PORT: 5005, ADDRESS: localhost
+source: localhost:/tmp/scanner-test
+copies: 2
