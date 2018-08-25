@@ -28,7 +28,7 @@ class Scanner(PersistentDict):
             name = context
 
         self.config = config.Config.instance()
-        self.pd_filename = f".cb.{context}.json"
+        self.pd_filename = f".cb.{context}.json.bz2"
         lazy_write = self.config.get(context, "LAZY WRITE", 5)
         super().__init__(f"{self.path}/{self.pd_filename}", lazy_write) 
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
@@ -148,10 +148,12 @@ class Scanner(PersistentDict):
                 self.logger.debug(self[fqde]["size"])
                 changed = True
             else:
-                # FQDE: no checksum...
-                # TODO: this is broken ??
+                # TODO: look for bitrot?
+                # "if the file has maybechanged OR
+                #  if I don't have a checksum + I care about checksums"
                 actualState = FileState(fqde, False, prefix=self.path)
-                if actualState.maybechanged(self[fqde]):
+                if actualState.maybechanged(self[fqde]) or \
+                    (gen_checksums and self[fqde]["checksum"] == "deferred"):
                     # ... maybe changed.  (maybe) checksum + write
                     self.logger.debug(f"changed: {fqde}")
                     self.logger.debug(f"old: {self[fqde]}")

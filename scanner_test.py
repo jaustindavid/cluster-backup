@@ -51,6 +51,16 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(s.consumption(), 20480)
 
 
+    def test_turbo(self):
+        s = scanner.Scanner("test_scanner", "/tmp/scanner-test")
+        s.scan(turbo=True)
+        print(s.items())
+        self.assertEquals(s['./one.zero']['size'], 10240)
+        self.assertEquals(s['./one.zero']['checksum'], "deferred")
+        s.scan()
+        self.assertNotEquals(s['./one.zero']['checksum'], "deferred")
+
+
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMethods)
     unittest.TextTestRunner(verbosity=2).run(suite)
