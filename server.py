@@ -195,28 +195,29 @@ class Servlet(Thread):
         for filename in self.files:
             if client in self.files[filename]:
                 files.append(filename)
-            else:
-                self.logger.debug(f"{client} not in {filename}")
+            # else:
+            #     self.logger.debug(f"{client} not in {filename}")
         return Communique(files)
 
 
     # client wants a file: return the least-served which isn't on client
     # but, if possible, match a size-hint (if they ask for 100mb, try not
     # to offer 1gb)
-    def underserved_for(self, client):
+    def DEADunderserved_for(self, client):
         files = []
         for filename in self.files:
             if client not in self.files[filename]:
                 if len(self.files[filename]) < self.copies:
-                    self.logger.debug(f"request: {filename} is not held by client")
+                    # self.logger.debug(f"request: {filename} is not held by client")
                     files.append(filename)
         if len(files) > 0:
-            return sorted(files, key=lambda filename: len(self.files[filename]))
+            files = sorted(files, key=lambda filename: len(self.files[filename]))
+            return self.random_subset(files, 10)
         else:
             return None
 
 
-    def available_for(self, client, sizehint=0):
+    def DEADavailable_for(self, client, sizehint=0):
         files = []
         for filename in self.files:
             if client not in self.files[filename]:
@@ -345,6 +346,17 @@ class Servlet(Thread):
             return Communique("__none__", truthiness=False)
 
 
+    # tries to return qty items from list(data)
+    # https://stackoverflow.com/questions/6482889/get-random-sample-from-list-while-maintaining-ordering-of-items
+    def random_subset(self, data, qty):
+        # pathological cases
+        if len(data) == 0:
+            return []
+        if qty >= len(data):
+            return data
+        return [ data[i] for i in 
+                    sorted(random.sample(range(len(data)), qty)) ]
+
 
     # return a file which needs a backup, but is NOT held
     # by client
@@ -361,9 +373,10 @@ class Servlet(Thread):
                     files.append(filename)
                     # return filename
         if len(files) > 0:
-            # TODO: return the whole list
-            file = random.choice(files)
-            self.logger.debug(f"returning {file}")
+            # TODO: return a subset of the list
+            return self.random_subset(files, 20)
+            # file = random.choice(files)
+            # self.logger.debug(f"returning {file} and moar")
             return files
         self.logger.debug("I got nothin'")
         return None
@@ -383,7 +396,7 @@ class Servlet(Thread):
                     files[filename] = len(self.files[filename])
         if len(files.keys()) > 0:
             filenames = sorted(files.keys(), key=lambda x: files[x], reverse=True)
-            # TODO: return the whole list
+            # TODO: return a subset of the list
             return Communique(filenames)
         else:
             self.logger.debug("no overserved files :/")
@@ -437,7 +450,7 @@ class Server:
         self.hostname = hostname
         self.config = config.Config.instance()
         self.logger = logging.getLogger(utils.logger_str(__class__))
-        self.logger.setLevel(logging.INFO)
+        # self.logger.setLevel(logging.INFO)
         self.contexts = self.get_contexts()
         self.servlets = {}
         self.build_servlets()
@@ -499,9 +512,9 @@ class Server:
             with conn:
                 data = str(conn.recv(BUFFER_SIZE), 'ascii')
                 if data:
-                    self.logger.debug(b"received {data}")
+                    self.logger.debug(f"received {data}")
                     response = bytes(self.handle(data), 'ascii')
-                    self.logger.debug(b"returning {data}")
+                    self.logger.debug(f"returning {data}")
                 conn.sendall(response)
                 conn.close()
             if timer.once_every(10):

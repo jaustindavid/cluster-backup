@@ -15,7 +15,37 @@ class TestMethods(unittest.TestCase):
         pass
 
 
-    def test_least_served(self):
+    def test_1_random_sample(self):
+        logger = logging.getLogger()
+        # logger.setLevel(logging.INFO)
+        cfg = config.Config.instance()
+        cfg.init("test-config.txt", "source", "backup", hostname="localhost")
+        source_contexts = list(cfg.get_contexts_for_key("source").keys())
+        context = source_contexts[0]
+        servlet = server.Servlet(context)
+
+        self.assertEquals(len(servlet.random_subset([], 11)), 0)
+
+        data = [ "zero", "one", "two", "three", "four", \
+                "five", "six", "seven", "eight", "nine" ]
+        logger.debug(f"data: {data}")
+        sampled = servlet.random_subset(data, 10)
+        logger.debug(f"sample(10): {sampled}")
+        self.assertEquals(len(sampled), 10)
+
+        sampled = servlet.random_subset(data, 6)
+        self.assertEquals(len(sampled), 6)
+        logger.debug(f"sample(6): {sampled}")
+
+        while len(sampled) > 0:
+            datum = sampled[0]
+            sampled = sampled[1:]
+            self.assertTrue(datum not in sampled)
+
+
+    def test_2_least_served(self):
+        logger = logging.getLogger()
+        logger.setLevel(logging.DEBUG)
         cfg = config.Config.instance()
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
         source_contexts = list(cfg.get_contexts_for_key("source").keys())
@@ -28,14 +58,16 @@ class TestMethods(unittest.TestCase):
 
         # check varying sizes (only one file should be served)
         bigfile = servlet.least_served(candidates, 2**30)
-        print(f"got {bigfile}: {servlet.scanner[bigfile]['size']}")
+        logger.debug(f"got {bigfile}: {servlet.scanner[bigfile]['size']}")
         self.assertTrue(servlet.scanner[bigfile]['size'] < 2**30)
         otherfile = servlet.least_served(candidates, 2**30)
         self.assertTrue(servlet.scanner[otherfile]['size'] < 2**30)
         self.assertEquals(bigfile, otherfile)
 
 
-    def test_request(self):
+    def test_3_request(self):
+        logger = logging.getLogger()
+        # logger.setLevel(logging.INFO)
         cfg = config.Config.instance()
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
         source_contexts = list(cfg.get_contexts_for_key("source").keys())
@@ -58,8 +90,8 @@ class TestMethods(unittest.TestCase):
         otherfile = servlet.request((client0, 2**30))[0]
         self.assertTrue(servlet.scanner[otherfile]['size'] < 2**30)
         self.assertNotEquals(bigfile, otherfile)
-        print(f"{client0} got {otherfile}: {servlet.scanner[otherfile]['size']}")
-        print("\n\n\n")
+        logger.debug(f"{client0} got {otherfile}: {servlet.scanner[otherfile]['size']}")
+        logger.debug("\n\n\n")
 
         # claim all the files
         filecount = 2 # claimed 2 so far
@@ -80,15 +112,16 @@ class TestMethods(unittest.TestCase):
         # I should get a big one now
         client2 = client_contexts[2]
         bigfile = servlet.request((client2, 2**30))[0]
-        print(f"got {bigfile}: {servlet.scanner[bigfile]['size']}")
+        logger.debug(f"got {bigfile}: {servlet.scanner[bigfile]['size']}")
         self.assertTrue(servlet.scanner[bigfile]['size'] < 2**30)
         otherfile = servlet.request((client2, 50*2**20))[0]
-        print(f"got {otherfile}: {servlet.scanner[otherfile]['size']}")
+        logger.debug(f"got {otherfile}: {servlet.scanner[otherfile]['size']}")
         self.assertTrue(servlet.scanner[otherfile]['size'] < 50*2**20)
         self.assertNotEquals(bigfile, otherfile)
 
 
     def test_locking(self):
+        return
         cfg = config.Config.instance()
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
         source_contexts = list(cfg.get_contexts_for_key("source").keys())
