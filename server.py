@@ -189,7 +189,7 @@ class Servlet(Thread):
     # client releases their claim on filename
     def unclaim(self, args):
         client, filename = args[:2]
-        self.logger.debug(f"files: {self.files}, client: {client}, filename: {filename}")
+        # self.logger.debug(f"files: {self.files}, client: {client}, filename: {filename}")
         if filename and len(self.files) > 0 and filename in self.files \
             and client in self.files[filename]:
             self.files[filename].remove(client)
