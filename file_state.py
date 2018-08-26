@@ -2,7 +2,7 @@
 
 import logging, os, json, time, hashlib, random, subprocess, re
 import config
-from utils import logger_str
+from utils import logger_str, str_to_bytes
 
 
 # { 'name' : filename, 
@@ -25,7 +25,8 @@ class FileState:
 
     def update(self, genChecksums = True):
         cfg = config.Config.instance()
-        BLOCKSIZE = int(cfg.get("global", "BLOCKSIZE", 2**20))
+        BLOCKSIZE = int(str_to_bytes(cfg.get("global", 
+                                            "BLOCKSIZE", "1MB")))
         NBLOCKS = int(cfg.get("global", "NBLOCKS", 0))
         if self.prefix is not None:
             filename = f"{self.prefix}/{self.data['filename']}"
