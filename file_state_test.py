@@ -1,8 +1,9 @@
 #!/usr/local/bin/python3.6
 
-import unittest, localState, os, subprocess, shutil
+import unittest, os, subprocess, shutil, logging
+import config, file_state
 
-class TestCacheMethods(unittest.TestCase):
+class TestMethods(unittest.TestCase):
 
     def setUp(self):
         global tempdir
@@ -14,62 +15,42 @@ class TestCacheMethods(unittest.TestCase):
             filename = f"tmp/file_{i}.1k"
             outfile = open(filename, "w+")
             outfile.write(one_k)
+        logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s',
+                            level=logging.DEBUG)
+
 
     def tearDown(self):
         global tempdir
         shutil.rmtree(tempdir)
 
-    def test_1_empty_scandir(self):
-        files = localState.scandir(f"{tempdir}/foo")
-        self.assertEquals(files["__total__"], 0)
-        self.assertEquals(len(list(files)), 1)
 
-    def test_2_scandir(self):
+    def test_rsync(self):
         global tempdir
-        files = localState.scandir(tempdir)
-        self.assertEquals(files["__total__"], 10240)
-        for i in range(0,10):
-            self.assertEquals(files[f"{tempdir}/file_{i}.1k"].st_size, 1024)
+        cfg = config.Config.instance()
+        cfg.set("global", "verbose", "yes")
+        source = f"{tempdir}/file_0.1k"
+        dest = f"{tempdir}/copy_file_0.1k"
+        exitvalue = file_state.rsync(source, dest)
+        self.assertEquals(exitvalue, 0)
+        self.assertTrue(os.path.exists(dest))
 
-    def test_3_lru_files_to_size_target(self):
-        global tempdir
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir), 9500)
-        self.assertEquals(len(targets), 1)
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir))
-        self.assertEquals(len(targets), 10)
+        dest = f"{tempdir}/copy' file_0.1k"
+        exitvalue = file_state.rsync(source, dest)
+        self.assertEquals(exitvalue, 0)
+        self.assertTrue(os.path.exists(dest))
 
-    def test_4_cleanup(self):
-        global tempdir
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir), 9500)
-        localState.cleanup(targets)
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir), 9500)
-        self.assertEquals(len(targets), 0)
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir), 8500)
-        self.assertEquals(len(targets), 1)
-        self.assertEquals(targets[0], f"{tempdir}/file_1.1k")
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir))
-        localState.cleanup(targets)
-        targets = localState.lru_files_to_size_target(localState.scandir(tempdir))
-        self.assertEquals(len(targets), 0)
+# 2018-08-25 15:20:14,904 [rsync] ['rsync', '-a', '--inplace', '--partial', '--timeout', '180', "mini:/Volumes/Docs_ZFS/BitTorrent\\ Sync/hacking/Drew's\\ things/things/3d\\ printer/cuttlefish/M_cuttlefish_upright_80pct.gcode.gz", "/mnt/data/austin/cluster-backups/a55fde13/BitTorrent Sync/hacking/Drew's things/things/3dprinter/cuttlefish/M_cuttlefish_upright_80pct.gcode.gz", '-v', '--progress']
 
+        source = "mini:/Volumes/Docs_ZFS/BitTorrent Sync/hacking/Drew's things/things/3d printer/cuttlefish/M_cuttlefish_upright_80pct.gcode.gz"
+        dest = "/tmp" # "/mnt/data/austin/cluster-backups/a55fde13/BitTorrent Sync/hacking/Drew's things/things/3dprinter/cuttlefish/M_cuttlefish_upright_80pct.gcode.gz"
+        exitvalue = file_state.rsync(source, dest)
+        self.assertEquals(exitvalue, 0)
+        self.assertTrue(os.path.exists(dest))
 
-    def test_5_read(self):
-        with open("file.txt", "w") as file:
-            file.write('{"key": "value"}')
-        ps = localState.PersistentState("file.txt")
-        data = ps.read()
-        self.assertEquals(data["key"], "value")
-
-    def test_6_write(self):
-        ps = localState.PersistentState("file.txt")
-        ps.write({"key": "value"})
-        with open("file.txt", "r") as file:
-            contents = file.read()
-        self.assertEquals(contents, '{"key": "value"}')
 
 
 tempdir = "tmp"
 
 if __name__ == "__main__":
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestCacheMethods)
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestMethods)
     unittest.TextTestRunner(verbosity=2).run(suite)

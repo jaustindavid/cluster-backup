@@ -1,4 +1,4 @@
-#! python3.6
+#!/usr/bin/env python3.6
 
 import logging, os, json, time, hashlib, random, subprocess, re
 import config
@@ -124,6 +124,12 @@ def sum_sha256(fname, BLOCKSIZE = 2**20, NBLOCKS = 0):
     return hash_sha256.hexdigest()
 
 
+def escape_special_chars(string):
+    new_string = re.sub(r"'", r"\'", string)
+    new_string = re.sub(r'"', r'\"', new_string)
+    new_string = re.sub(r' ', r'\ ', new_string)
+    return new_string
+
 
 # returns an exit code: 0 == good, !0 == bad
 def rsync(source, dest, options = [], **kwargs):
@@ -134,17 +140,18 @@ def rsync(source, dest, options = [], **kwargs):
     RSYNC = "rsync"
 	# rsync is silly about escaping spaces -- remote locations ONLY
     if ":" in source:
-        doctored_source = re.sub(r' ', '\ ', source)
-    else:
-        doctored_source = source
+        # doctored_source = re.sub(r' ', '\ ', source)
+        source = escape_special_chars(source)
     if ":" in dest:
-        doctored_dest = re.sub(r' ', '\ ', dest)
-    else:
-        doctored_dest = dest
+        # doctored_dest = re.sub(r' ', '\ ', dest)
+        dest = escape_special_chars(dest)
+    # doctored_source = json.dumps(source)
+    # doctored_dest = json.dumps(dest)
+    print(source, dest)
     RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))
     command = [ RSYNC, "-a", "--inplace", "--partial", \
                 "--timeout", RSYNC_TIMEOUT, \
-                doctored_source, doctored_dest ]
+                source, dest ]
     if len(options) > 0:
         command += options
     # if len(ignorals) > 0:
