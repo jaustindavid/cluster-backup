@@ -24,6 +24,12 @@ class TestMethods(unittest.TestCase):
         shutil.rmtree(tempdir)
 
 
+    def test_escape(self):
+        string = r'this is (a neato) string'
+        self.assertEquals(file_state.escape_special_chars(string), \
+                            r'this\ is\ \(a\ neato\)\ string')
+
+
     def test_rsync(self):
         global tempdir
         cfg = config.Config.instance()
