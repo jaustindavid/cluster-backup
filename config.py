@@ -167,7 +167,7 @@ class Config:
         if context in self.data:
             if key in self.data[context]:
                 return self.data[context][key]
-        if key in self.data["global"]:
+        if "global" in self.data and key in self.data["global"]:
             return self.data["global"][key]
         return default
 
