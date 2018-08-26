@@ -151,7 +151,7 @@ class Clientlet(Thread):
                 self.claim(source_context, filename, dropping=False)
         else:                           # NOT DEAD YET
             for source_context in self.random_source_list:
-                for filename in self.scanners[source_context].keys():
+                for filename in list(self.scanners[source_context].keys()):
                     self.claim(source_context, filename, dropping=False)
 
 
