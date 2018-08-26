@@ -143,8 +143,13 @@ class Servlet(Thread):
 
     def dump_files(self, filelist):
         message = ""
+        i = 0
         for filename in filelist:
             message += f"{filename}:{len(self.files[filename])} "
+            i += 1
+            if i > 20:
+                message += "..."
+                break
         self.logger.debug(message)
 
 
