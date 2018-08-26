@@ -149,6 +149,11 @@ class Servlet(Thread):
 
 
     # client claims filename (not a lock)
+    # a few cases: 
+    #   - not a file: drop it
+    #   - not valid checksum because I haven't computed it: keep it
+    #   - not valid checksum because it's wrong: update it
+    #   - valid checksum (few cases): keep it
     def claim(self, args):
         client, filename, checksum = args[:3]
         if filename not in self.scanner:
@@ -163,18 +168,17 @@ class Servlet(Thread):
             return Communique("keep", truthiness=True)
         elif checksum != filestate["checksum"]:
             self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
-            return Communique("invalid checksum", truthiness=False)
+            return Communique("update", truthiness=False)
             return Communique("NACK", truthiness=False)
 
-        if filename in self.files:
-            if client not in self.files[filename]:
+        if filename not in self.files:
+            self.logger.warn("I'm leanring about {filename}")
+            self.files[filename] = [ client ]
+        elif client not in self.files[filename]:
                 self.files[filename].append(client)
-                self.stats['claims'] += 1
-            self.release(filename)
-            return Communique("ack")
-        else:   # I don't know about this file
-            self.logger.warn("This should never happen :(")
-            return Communique("NACK", truthiness=False)
+        self.stats['claims'] += 1
+        self.release(filename)
+        return Communique("ack")
 
 
     # client releases their claim on filename
@@ -525,7 +529,7 @@ class Server:
                 if data:
                     self.logger.debug(f"received {data}")
                     response = bytes(self.handle(data), 'ascii')
-                    self.logger.debug(f"returning {data}")
+                    self.logger.debug(f"returning {response}")
                 conn.sendall(response)
                 conn.close()
             if timer.once_every(10):
