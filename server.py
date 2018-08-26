@@ -65,7 +65,10 @@ class Servlet(Thread):
             self.scanner.scan()
             self.update_files()
             self.heartbeat()
-            time.sleep(10)  # TODO: make configurable
+            sleep_time = utils.str_to_duration( \
+                            self.config.get(self.context, "rescan"))
+            self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
+            time.sleep(sleep_time)
 
     
     def update_files(self):
@@ -150,14 +153,17 @@ class Servlet(Thread):
         client, filename, checksum = args[:3]
         if filename not in self.scanner:
             self.logger.warn("Client has a file, I don't; deleted?")
+            return Communique("drop", truthiness=False)
             return Communique("NACK", truthiness=False)
 
         filestate = self.scanner.get(filename)
         self.logger.debug(f"{client} claims file {filename}")
         if filestate["checksum"] == "deferred":
             self.logger.debug("I have a deferred checksum; let it go (for now)")
+            return Communique("keep", truthiness=True)
         elif checksum != filestate["checksum"]:
             self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
+            return Communique("invalid checksum", truthiness=False)
             return Communique("NACK", truthiness=False)
 
         if filename in self.files:
