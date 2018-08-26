@@ -108,7 +108,7 @@ class Clientlet(Thread):
     # I (think I) have this file; claim it
     #   if my claim is invalid (checksum doesn't match), 
     #   remove it
-    def claim(self, source_context, filename, **kwargs):
+    def claim(self, source_context, filename, counter=0, **kwargs):
         if "dropping" in kwargs:
             dropping = kwargs["dropping"]
         else:
@@ -122,9 +122,15 @@ class Clientlet(Thread):
         self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
         if response: 
             self.logger.debug("responding 239235")
-            if response == "ack":
+            if response in ("ack", "keep"):
                 # self.files.append(filename)   # implied by ownership
                 self.logger.debug(f"{self.context} claimed {filename} successfully")
+            elif response in ("update", "invalid checksum"):
+                if counter:
+                    self.retrieve(source_context, filename, counter-1)
+                else:
+                    self.logger.debug(f"Giving up, can't seem to copy {filename}")
+                    self.drop(source_context, filename)
             else:
                 self.logger.debug(f"I should drop {filename}")
                 if dropping: # TODO: test this
@@ -138,12 +144,12 @@ class Clientlet(Thread):
     # inform (optionally a server, optionally of a filename)
     # that I have it
     def inform(self, source_context=None, filename=None):
-        if source_context and filename:
+        if source_context and filename: # DEAD
             self.claim(source_context, filename, dropping=False)
-        elif source_context:
+        elif source_context:            # DEAD
             for filename in self.scanners[source_context]:
                 self.claim(source_context, filename, dropping=False)
-        else:
+        else:                           # NOT DEAD YET
             for source_context in self.random_source_list:
                 for filename in self.scanners[source_context].keys():
                     self.claim(source_context, filename, dropping=False)
@@ -189,13 +195,13 @@ class Clientlet(Thread):
     # ... unless I already have it:
     #       because (for any reason) the server forgot, but it's
     #       in my backup folder (in which case, just send the checksum)
-    def retrieve(self, source_context, filename):
+    def retrieve(self, source_context, filename, counter=0):
         self.logger.debug(f"retrieving {source_context}:{filename} to {self.path}/{source_context}/{filename}")
         # 0: do I have it?
         if self.scanners[source_context].contains_p(filename):
             self.logger.debug(f"I already have {filename}")
             # stomp on filename -- give him everything
-            # TODO: send this as one big list (maybe NBD)
+            # TODO: send this as one big list (maybe NBD), or maybe just one
             for filename in list(self.scanners[source_context].keys()):
                 self.claim(source_context, filename, dropping=True)
             return
@@ -217,7 +223,7 @@ class Clientlet(Thread):
 
         if rsync_stat == 0:
             # 3: record it
-            self.claim(source_context, filename, dropping=True)
+            self.claim(source_context, filename, counter, dropping=True)
         else:
             self.logger.error("Failed to rsync???")
             raise FileNotFoundError
@@ -456,8 +462,10 @@ class Clientlet(Thread):
                     self.inform()
                     self.inventory()
             self.audit()
-            self.logger.info(f"sleeping")
-            time.sleep(30) # TODO: configurable
+            sleep_time = int(utils.str_to_duration( \
+                    self.config.get(self.context, "rescan"))/2)
+            self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
+            time.sleep(sleep_time)
 
 
     def __str__(self):
