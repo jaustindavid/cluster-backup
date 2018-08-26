@@ -148,6 +148,10 @@ class Servlet(Thread):
     # client claims filename (not a lock)
     def claim(self, args):
         client, filename, checksum = args[:3]
+        if filename not in self.scanner:
+            self.logger.warn("Client has a file, I don't; deleted?")
+            return Communique("NACK", truthiness=False)
+
         filestate = self.scanner.get(filename)
         self.logger.debug(f"{client} claims file {filename}")
         if filestate["checksum"] == "deferred":
@@ -163,6 +167,7 @@ class Servlet(Thread):
             self.release(filename)
             return Communique("ack")
         else:   # I don't know about this file
+            self.logger.warn("This should never happen :(")
             return Communique("NACK", truthiness=False)
 
 
