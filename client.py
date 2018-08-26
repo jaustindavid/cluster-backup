@@ -464,6 +464,13 @@ class Clientlet(Thread):
             self.audit()
             sleep_time = int(utils.str_to_duration( \
                     self.config.get(self.context, "rescan"))/2)
+            # I should sleep only as much as the shorted rescan interval
+            # for my servers
+            for source_context in self.random_source_list:
+                sleep_time = min(sleep_time, 
+                        int(utils.str_to_duration( \
+                            self.config.get(source_context, "rescan"))/2))
+
             self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
 
