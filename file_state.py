@@ -140,18 +140,13 @@ def rsync(source, dest, options = [], **kwargs):
     RSYNC = "rsync"
 	# rsync is silly about escaping spaces -- remote locations ONLY
     if ":" in source:
-        # doctored_source = re.sub(r' ', '\ ', source)
         source = escape_special_chars(source)
     if ":" in dest:
-        # doctored_dest = re.sub(r' ', '\ ', dest)
         dest = escape_special_chars(dest)
-    # doctored_source = json.dumps(source)
-    # doctored_dest = json.dumps(dest)
     print(source, dest)
     RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))
     command = [ RSYNC, "-a", "--inplace", "--partial", \
-                "--timeout", RSYNC_TIMEOUT, \
-                source, dest ]
+                "--timeout", RSYNC_TIMEOUT, source, dest ]
     if len(options) > 0:
         command += options
     # if len(ignorals) > 0:
