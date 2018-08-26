@@ -133,6 +133,11 @@ class Config:
 
     # "LAZY WRITE: 10" -> key, value
     def process_option(self, context, option):
+        self.logger.debug(f"parsing {option}")
+        if ": " not in option:
+            self.logger.error("Can't parse {option} -- invalid format")
+            self.logger.error("format is 'key: value'")
+            raise SyntaxError
         tokens = option.split(": ")
         self.set(context, tokens[0], tokens[1])
         self.logger.debug(f"option {context}:{tokens[0]} => {tokens[1]}")

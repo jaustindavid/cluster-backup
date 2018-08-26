@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
-import unittest, config
+import unittest, logging
+import config
 
 class TestCacheMethods(unittest.TestCase):
 
     def setUp(self):
+        logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s', level=logging.INFO)
         cfg = config.Config.instance()
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
 
@@ -14,17 +16,22 @@ class TestCacheMethods(unittest.TestCase):
 
     def test_config(self):
         cfg = config.Config.instance()
-        print("config:", cfg.data)
-        self.assertEquals(cfg.get("91cf8c76", "backup"), \
-                           "localhost:~/cb/test/backup3")
+        source_contexts = list(cfg.get_contexts_for_key("source").keys())
+        self.assertTrue(len(source_contexts)>0)
+
 
     def test_unpacking(self):
         cfg = config.Config.instance()
-        print("config:", cfg.data)
         contexts = cfg.get_contexts_for_key_and_target("backup", "localhost")
-        print(contexts)
+        self.assertTrue(len(contexts)>0)
         contexts = cfg.get_contexts_for_key_and_target("source", "localhost")
-        print(contexts)
+        self.assertTrue(len(contexts)>0)
+
+
+    def test_options(self):
+        cfg = config.Config.instance()
+        self.assertEquals(cfg.get("global", "rescan"), "1d")
+        
 
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase(TestCacheMethods)
