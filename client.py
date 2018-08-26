@@ -168,8 +168,7 @@ class Clientlet(Thread):
             response = self.send(source_context, "inventory")
             if response:
                 self.logger.debug(f"got {response} type={type(response)}")
-                for filename in response: # BUG 
-                    self.logger.debug(f"got {response} type={type(response)}")
+                for filename in response: 
                     self.logger.debug(f"filename: {filename} type={type(filename)}")
                     if filename in self.scanners[source_context]:
                         self.claim(source_context, filename, dropping=True)
@@ -443,6 +442,18 @@ class Clientlet(Thread):
             self.logger.debug(f"{source_context}: {nfiles} files")
 
 
+    # returns the min config'd internval under my or 
+    # any of my server's contexts
+    def get_interval(self, interval_name):
+        interval = utils.str_to_duration( \
+                        self.config.get(self.context, interval_name))
+        for source_context in self.random_source_list:
+            interval = min(interval,
+                    utils.str_to_duration( \
+                        self.config.get(source_context, interval_name)))
+        return interval
+
+
     def run(self):
         self.bailing = False # future use, to kill the Thread
         timer = elapsed.ElapsedTimer()
@@ -451,26 +462,19 @@ class Clientlet(Thread):
         self.inventory()    # asks the server
         self.inform()       # tells the server
         while not self.bailing:
+            # re-check this, in case config reloaded
+            sleep_time = self.get_interval("rescan")//2
             self.logger.info(f"running")
             while self.step():
-                time.sleep(3)
+                time.sleep(3)  # hysteresis
                 self.logger.debug(f"stepping again")
-                if timer.once_every(60): # TODO: configurable
+                if timer.once_every(sleep_time):
                     for source_context in self.scanners:
                         self.scanners[source_context].scan()
                     self.heartbeep()
                     self.inform()
                     self.inventory()
             self.audit()
-            sleep_time = int(utils.str_to_duration( \
-                    self.config.get(self.context, "rescan"))/2)
-            # I should sleep only as much as the shorted rescan interval
-            # for my servers
-            for source_context in self.random_source_list:
-                sleep_time = min(sleep_time, 
-                        int(utils.str_to_duration( \
-                            self.config.get(source_context, "rescan"))/2))
-
             self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
 
