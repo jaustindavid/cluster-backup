@@ -217,6 +217,7 @@ class Servlet(Thread):
                 files.append(filename)
             # else:
             #     self.logger.debug(f"{client} not in {filename}")
+        # TODO: make this better
         return Communique(files)
 
 
@@ -416,8 +417,7 @@ class Servlet(Thread):
                     files[filename] = len(self.files[filename])
         if len(files.keys()) > 0:
             filenames = sorted(files.keys(), key=lambda x: files[x], reverse=True)
-            # TODO: return a subset of the list
-            return Communique(filenames)
+            return Communique(self.random_subset(filenames, 20))
         else:
             self.logger.debug("no overserved files :/")
             return None
