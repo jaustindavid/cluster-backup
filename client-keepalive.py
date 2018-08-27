@@ -122,20 +122,20 @@ class Clientlet(Thread):
                             filestate["checksum"])
         self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
         if response: 
-            self.logger.debug("responding 239235")
             if response in ("ack", "keep"):
                 # self.files.append(filename)   # implied by ownership
                 self.logger.debug(f"{self.context} claimed {filename} successfully")
             elif response in ("update", "invalid checksum"):
                 if counter:
-                    self.retrieve(source_context, filename, counter-1)
+                    counter -= 1
+                    self.logger.debug(f"failed, but retrying {counter} times")
+                    self.retrieve(source_context, filename, counter)
                 else:
                     self.logger.debug(f"Giving up, can't seem to copy {filename}")
                     self.drop(source_context, filename)
             else:
                 self.logger.debug(f"I should drop {filename}")
-                if dropping: # TODO: test this
-                    self.logger.debug(f"NACK NACK NACK")
+                if dropping:
                     self.logger.debug(f"claim returned >{response}<")
                     self.drop(source_context, filename)
         else:
@@ -305,6 +305,12 @@ class Clientlet(Thread):
         return self.sockets[source_context]
 
 
+    def del_socket(self, source_context):
+        sock = self.sockets[source_context]
+        sock.close()
+        del return self.sockets[source_context]
+
+
     # send a command(args) to a source_context; 
     # if possible, re-use an existing socket
     def send(self, source_context, command, *args):
@@ -317,6 +323,7 @@ class Clientlet(Thread):
         message = f"{command} @@ {source_context} @@ {self.context}"
         if len(args) > 0:
             message += " @@ " + " @@ ".join(args)
+        self.logger.debug(f"sending '{message}'")
         try:
             sock.send(message.encode())
             data = sock.recv(BUFFER_SIZE)
@@ -324,7 +331,7 @@ class Clientlet(Thread):
         except BrokenPipeError:
             data = "__none__"
             self.logger.exception(f"{self.context} got that broken pipe")
-            sock.close()
+            self.del_socket(source_context)
 
         self.logger.debug(f"received '{data}'")
         if data == "n/a":
