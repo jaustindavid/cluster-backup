@@ -170,19 +170,21 @@ class Servlet(Thread):
         self.logger.debug(f"{client} claims file {filename}")
         if filestate["checksum"] == "deferred":
             self.logger.debug("I have a deferred checksum; let it go (for now)")
-            return Communique("keep", truthiness=True)
+            # return Communique("keep", truthiness=True)
+            # fallthrough
         elif checksum != filestate["checksum"]:
             self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
             return Communique("update", truthiness=False)
             return Communique("NACK", truthiness=False)
 
         if filename not in self.files:
-            self.logger.warn("I'm leanring about {filename}")
+            self.logger.warn(f"I'm learning about {filename}")
             self.files[filename] = [ client ]
         elif client not in self.files[filename]:
                 self.files[filename].append(client)
         self.stats['claims'] += 1
         self.release(filename)
+        # return Communique("keep", truthiness=True)
         return Communique("ack")
 
 
