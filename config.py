@@ -20,9 +20,11 @@ will generate a unique "context", which can be used to retrieve
 following key:value pairs.  Non-primary key:value pairs found
 before the first primary key are of "global" context
 
+Multiple values can be comma-separated;
   key: value
   key1: value1
-becomes { key: value, key1: value1 }
+  key2: value2, value3
+becomes { key: value, key1: value1, key2: [value2, value3] }
 
 Note that multiple keys will stomp; the last one takes precendece
 
