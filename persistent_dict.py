@@ -8,9 +8,6 @@ pd.startTransaction()
 pd.set()
 pd.set()
 pd.closeTransaction()
-
-
-TODO: make me more like a dict / addressible
 """
 
 import os, json, logging, threading, bz2
@@ -154,13 +151,10 @@ class PersistentDict:
     def delete(self, key):
         lock = threading.RLock()
         lock.acquire()
-        try:
-            del self.data[key]
-            self.lazy_write()
+        del self.data[key]
+        self.lazy_write()
+        if key in self.dirtybits:
             del self.dirtybits[key]
-        except KeyError:
-            self.logger.exception("whoa")
-            pass
         lock.release()
 
 
