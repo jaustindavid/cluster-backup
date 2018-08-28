@@ -312,10 +312,31 @@ class Clientlet(Thread):
         del self.sockets[source_context]
 
 
+    # tries to recv() all bytes from sock, 
+    # when the first chunk is in data and has a
+    # size: <bytes> hint (fixed @ 16 bytes wide)
+    def recvall(self, sock, data):
+        i = 0
+        size = int(data[6:16])
+        buf = data[16:]
+        sock.settimeout(5)
+        while i < size:
+            try:
+                data = conn.recv(10240)
+            except socket.timeout:
+                self.logger.warn("Socket timeout!")
+                return None
+            i += len(data)
+            buf += str(data, 'ascii')
+        self.logger.debug(f"I recv()d {i} bytes")
+        return buf
+
+
+
     # send a command(args) to a source_context; 
     # if possible, re-use an existing socket
     def send(self, source_context, command, *args):
-        BUFFER_SIZE = 10*2**20 # 10MB
+        BUFFER_SIZE = 1024 # 10*2**20 # 10MB
         # create a socket
         sock = self.get_socket(source_context)
         if not sock:
@@ -339,7 +360,10 @@ class Clientlet(Thread):
             self.logger.exception(f"{self.context} got that broken pipe")
             self.del_socket(source_context)
 
-            self.logger.debug(f"received >{data}<")
+        if data.startswith("size: "):
+            data = self.recvall(sock, data)
+
+        self.logger.debug(f"received >{data}<")
         if not data or data == "n/a" or data == "__none__":
             data = None  # servlet not ready; treat like conn failure
             ret = comms.Communique(None)

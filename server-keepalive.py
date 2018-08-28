@@ -518,6 +518,20 @@ class Server:
         return str(response)
 
 
+    # if data > 1000 bytes, prefix it with 16-byte header
+    #   size: <bytes>
+    # then the rest
+    def sendall(self, conn, data):
+        size = len(data)
+        if size > 1000:
+            self.logger.debug(f"returning {size} bytes: {data[:256]} ...")
+            conn.send(bytes(f"size: {size:10d}"))
+            conn.sendall(bytes(data, 'ascii'))
+        else:
+            self.logger.debug(f"returning {data}")
+            conn.sendall(bytes(data, 'ascii'))
+        
+
     def handler(self, conn, addr):
         BUFFER_SIZE = 1024 # datagrams (inbound) are very small
         while True:
@@ -526,8 +540,7 @@ class Server:
                 break
             self.logger.debug(f"received {data}")
             response = str(self.handle(data))
-            self.logger.debug(f"returning {response}")
-            conn.sendall(bytes(response, 'ascii'))
+            self.sendall(conn, response)
         conn.close()
 
 
