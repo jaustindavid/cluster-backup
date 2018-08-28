@@ -20,11 +20,11 @@ will generate a unique "context", which can be used to retrieve
 following key:value pairs.  Non-primary key:value pairs found
 before the first primary key are of "global" context
 
-non-primary keys can be comma-separated lists, or when multiple
-are found, a list will be created:
   key: value
-  key: value2, value3
-becomes { key: [ value, value2, value3 ] }
+  key1: value1
+becomes { key: value, key1: value1 }
+
+Note that multiple keys will stomp; the last one takes precendece
 
 Structure:
     self.data[context]{ key: value, key: value ... }
@@ -100,15 +100,13 @@ class Config:
                     self.logger.debug(f"> {line.strip()}")
                     line = line.split("#", 1)[0].strip()
                     tokens = line.split(": ", 1)
-                    if tokens[0] == "master config" and context == 0:
+                    if tokens[0] == "master config" and not context:
                         self.master_config = tokens[1]
                     elif tokens[0] in self.primary_keys:
                         self.logger.debug(f"got one: {tokens[0]} :: {tokens[1]}")
-                        # context += 1
                         context = utils.hash(tokens[1])
                         self.data[context] = {}
                         self.data[context][tokens[0]] = tokens[1]
-                        # print(self.data)
                     elif len(tokens) == 2:
                         # not a "master" or "slave", must be a config option
                         self.set(context, tokens[0], tokens[1])
@@ -117,30 +115,6 @@ class Config:
             self.logger.exception("Fatal error reading config")
             self.logger.error(f"Confirm {self.filename} is readable")
             sys.exit(1)
-        self.process_global_options()
-
-
-    def process_global_options(self):
-        options = self.get("global", "options")
-        if options is None:
-            return
-        if type(options) is str:
-            self.process_option("global", options)
-        else:
-            for option in options:
-                self.process_option("global", option)
-
-
-    # "LAZY WRITE: 10" -> key, value
-    def process_option(self, context, option):
-        self.logger.debug(f"parsing {option}")
-        if ": " not in option:
-            self.logger.error("Can't parse {option} -- invalid format")
-            self.logger.error("format is 'key: value'")
-            raise SyntaxError
-        tokens = option.split(": ")
-        self.set(context, tokens[0], tokens[1])
-        self.logger.debug(f"option {context}:{tokens[0]} => {tokens[1]}")
 
 
     def get_dirs(self, hostname = None):
