@@ -145,6 +145,7 @@ def escape_special_chars(string):
     new_string = re.sub(r' ', r'\ ', new_string)
     new_string = re.sub(r'\(', r'\(', new_string)
     new_string = re.sub(r'\)', r'\)', new_string)
+    new_string = re.sub(r'&', r'\&', new_string)
     return new_string
 
 

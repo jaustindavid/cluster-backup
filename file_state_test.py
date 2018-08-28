@@ -25,9 +25,9 @@ class TestMethods(unittest.TestCase):
 
 
     def test_escape(self):
-        string = r'this is (a neato) string'
+        string = r'this is (a neato) string & stuff'
         self.assertEquals(file_state.escape_special_chars(string), \
-                            r'this\ is\ \(a\ neato\)\ string')
+                            r'this\ is\ \(a\ neato\)\ string\ \&\ stuff')
 
 
     def test_rsync(self):
