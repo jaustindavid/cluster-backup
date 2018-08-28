@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import logging, itertools
+import logging, json
 
 """
 This should evaluate to True or False
@@ -27,31 +27,25 @@ TODO:
 """
 class Communique:
     def __init__(self, *contents, **kwargs):
-        self.special = " @@ "
-        self.negatives = None
         self.truthiness = None
-        if "special" in kwargs:
-            self.special = kwargs["special"]
+        if "bool" in kwargs:
+            self.truthiness = kwargs["bool"]
+        self.negatives = None
         if "negatives" in kwargs:
             self.negatives = kwargs["negatives"]
-        if "truthiness" in kwargs:
-            self.truthiness = kwargs["truthiness"]
 
-        # print(f"I am {contents}")
-        if len(contents) > 1:
-            self.contents = list(contents)
-        elif len(contents) == 1:
-            # print(f"I am {contents[0]}: len={len(contents[0])}")
-            # self.contents = self.unroll(contents)
+        if len(contents) == 1:
+            # print(f"Unpacking {contents}")
             self.contents = contents[0]
         else:
-            self.contents = None
+            # print(f"NOT unpacking {contents}")
+            self.contents = contents
 
 
     # this is terrible, DEAD 
     ''' append 0 or more args to my contents '''
     def append(self, *args):
-        print(f"len({args}) = {len(args)}")
+        # print(f"len({args}) = {len(args)}")
         if len(args) == 1 and not args[0]:
             return
         if not self.contents:
@@ -75,26 +69,14 @@ class Communique:
 
 
     def __bool__(self):
-        # print(f"testing: {type(self.contents)}: {self.contents}")
         if self.truthiness is not None:
             return self.truthiness
-        if not self.contents:
-            return False
         if type(self.contents) is str:
             if self.negatives and self.contents in self.negatives:
                 return False
-            return self.contents and self.contents != ""
-        if type(self.contents) is list or type(self.contents) is tuple:
-            # print(f"testing a list: {self.contents}")
-            return bool(self.contents[0])
-        return True
+            return bool(self.contents and self.contents != "")
+        return bool(self.contents)
         
-
-    def __str__(self):
-        if type(self.contents) is list or type(self.contents) is tuple:
-            return self.special.join(map(str, self.contents))
-        return str(self.contents)
-
 
     def __len__(self):
         if type(self.contents) is str:
@@ -103,7 +85,9 @@ class Communique:
 
 
     def __eq__(self, item):
-        return item == str(self)
+        if type(item) is __class__:
+            return str(self) == str(item)
+        return self.contents == item
 
 
     def __iter__(self):
@@ -113,16 +97,28 @@ class Communique:
             return iter(self.contents)
 
 
+    # a.k.a. "serialize"
+    def __str__(self):
+        return json.dumps(self.contents)
+        if type(self.contents) is list or type(self.contents) is tuple:
+            return self.special.join(map(str, self.contents))
+        return str(self.contents)
+
+
+    # a.k.a. "deserialize"
     @staticmethod
-    def build(string, **kwargs):
-        if "special" in kwargs:
-            special = kwargs["special"]
-        else:
-            special = " @@ "
-        if string and special in string:
-            # print(f"splitting {string} with {special}")
-            return Communique(string.split(special))
-        return Communique(string, **kwargs)
+    def build(data, **kwargs):
+        # print(f"building {type(data)}: >{data}<")
+        if data is None:
+            return Communique(None, **kwargs)
+        # print(f"json says {json.loads(data)}")
+        try:
+            c = Communique(json.loads(data), **kwargs)
+        except json.decoder.JSONDecodeError:
+            self.logger.exception("Error decoding!")
+            return Communique(None)
+        # print(f"I survived with {c}")
+        return c
 
 
 if __name__ == "__main__":

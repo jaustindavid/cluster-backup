@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import unittest, comms, logging
+import unittest, json, comms, logging
 
 class TestMethods(unittest.TestCase):
 
@@ -19,7 +19,13 @@ class TestMethods(unittest.TestCase):
         c = comms.Communique(None)
         self.assertFalse(c)
 
-        c = comms.Communique(None, "more")
+        c = comms.Communique(None, bool=False)
+        self.assertFalse(c)
+
+        c = comms.Communique(None, bool=True)
+        self.assertTrue(c)
+
+        c = comms.Communique("This is one string", bool=False)
         self.assertFalse(c)
 
         c = comms.Communique("")
@@ -28,22 +34,23 @@ class TestMethods(unittest.TestCase):
         c = comms.Communique("None")
         self.assertTrue(c)
 
-        c = comms.Communique("", "a list")
+        c = comms.Communique(0)
         self.assertFalse(c)
 
-        c = comms.Communique(None, "a list")
-        self.assertFalse(c)
-
-        c = comms.Communique("filename", 0)
+        c = comms.Communique("test", "string with spaces")
         self.assertTrue(c)
-        self.assertEquals(str(c), "filename @@ 0")
+        self.assertEquals(c[0], "test")
+        self.assertEquals(c[1], "string with spaces")
 
 
     def test_indexing(self):
         c = comms.Communique("test string")
         self.assertEquals(c[0], "test string")
 
-        c = comms.Communique("test string", "with more")
+        c = comms.Communique(["test string"])
+        self.assertEquals(c[0], "test string")
+
+        c = comms.Communique(("test string", "with more"))
         self.assertEquals(c[0], "test string")
         self.assertEquals(c[1], "with more")
 
@@ -51,51 +58,28 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(c[1], 123)
 
 
+
     def test_serialize(self):
-        c = comms.Communique("test")
-        self.assertEquals(str(c), "test")
+        data = ("test", "string with spaces")
+        c = comms.Communique(data)
 
-        c = comms.Communique("test", "string with spaces")
-        self.assertEquals(str(c), "test @@ string with spaces")
+        string = str(c)
+        self.assertEquals(str(c), json.dumps(data))
 
-        c = comms.Communique("test", "string with spaces", "and more")
-        self.assertEquals(str(c), "test @@ string with spaces @@ and more")
+        see = comms.Communique.build(string)
+        self.assertEquals(see, c)
+        self.assertEquals(see[0], data[0])
+        self.assertEquals(see[0], "test")
 
+        data2 = ("tEst", "string with spaces")
+        see2 = comms.Communique(data2)
+        self.assertNotEquals(see, see2)
 
-    def test_specials(self):
-        c = comms.Communique("test", "string with spaces", special=";")
-        self.assertEquals(str(c), "test;string with spaces")
-
-
-    def test_negatives(self):
-        c = comms.Communique("ack")
-        self.assertTrue(c)
-
-        c = comms.Communique("nack", negatives=("nack", "NACK", "__none__"))
-        self.assertFalse(c)
-
-        c = comms.Communique("NACK", negatives=("nack", "NACK", "__none__"))
-        self.assertFalse(c)
-
-        c = comms.Communique("__none__", negatives=("nack", "NACK", "__none__"))
-        self.assertFalse(c)
-
-
-    def test_deserialize(self):
-        c = comms.Communique.build("test @@ string with spaces")
-        self.assertEquals(c[0], "test")
-        self.assertEquals(c[1], "string with spaces")
-
-        c = comms.Communique.build("1")
-        self.assertEquals(c[0], 1)
-
-        data = "__none__"
-        c = comms.Communique.build(data, negatives=("nack", "__none__"))
-        self.assertFalse(c)
 
 
     def test_len(self):
-        c = comms.Communique.build("test @@ string with spaces")
+        dump = json.dumps(["test", "string with spaces"])
+        c = comms.Communique.build(dump)
         self.assertEquals(len(c), 2)
         
         c = comms.Communique("ack")
@@ -108,24 +92,34 @@ class TestMethods(unittest.TestCase):
     def test_append(self):
         c = comms.Communique("command", "source", "client")
         print(str(c))
+        self.assertEquals(len(c), 3)
         args = list()
         c.append(args)
-        self.assertEquals(str(c), "command @@ source @@ client")
         c.append("filename")
-        self.assertEquals(str(c), "command @@ source @@ client @@ filename")
+        self.assertEquals(len(c), 4)
         print(f"len(c) = {len(c)}")
         print(f"str(c) = {str(c)}")
         c = comms.Communique("first")
+        self.assertEquals(len(c), 1)
         print(f"len(c) = {len(c)}")
         print(f"str(c) = {str(c)}")
         c.append("second")
         print(f"len(c) = {len(c)}")
         print(f"str(c) = {str(c)}")
+        self.assertEquals(len(c), 2)
 
 
     def test_eq(self):
+        data = "ack"
+        self.assertEquals(data, "ack")
+        c = comms.Communique(data)
+        self.assertEquals(c, data)
+
         c = comms.Communique("ack")
+        print(f"{str(c)} == {'ack'} ?")
         self.assertTrue(c == "ack")
+        self.assertEquals(c, "ack")
+
 
     def test_for(self):
         data = [ "ayeeeee", "beeeee", "seeeeee", "duheeeeeee" ]
@@ -161,6 +155,11 @@ class TestMethods(unittest.TestCase):
             print(f"item: {item}")
         self.assertEquals(i, 2)
 
+
+    def test_negatives(self):
+        data = "True"
+        c = comms.Communique(data, negatives=("True",))
+        self.assertFalse(c)
         
 
 if __name__ == "__main__":
