@@ -525,7 +525,7 @@ class Server:
         size = len(data)
         if size > 1000:
             self.logger.debug(f"returning {size} bytes: {data[:256]} ...")
-            conn.send(bytes(f"size: {size:10d}"))
+            conn.send(bytes(f"size: {size:10d}", 'ascii'))
             conn.sendall(bytes(data, 'ascii'))
         else:
             self.logger.debug(f"returning {data}")

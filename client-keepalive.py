@@ -340,7 +340,7 @@ class Clientlet(Thread):
         sock.settimeout(5)
         while i < size:
             try:
-                data = conn.recv(10240)
+                data = sock.recv(10240)
             except socket.timeout:
                 self.logger.warn("Socket timeout!")
                 return None

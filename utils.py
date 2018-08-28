@@ -103,7 +103,7 @@ def str_to_duration(string):
 
 
 
-def rsync(source, dest, options = [], **kwargs):
+def NOPErsync(source, dest, options = [], **kwargs):
     cfg = config.Config.instance()
     dryrun = cfg.getConfig("global", "dryrun", False)
 

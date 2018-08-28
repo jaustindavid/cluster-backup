@@ -6,7 +6,7 @@ import config
 class TestCacheMethods(unittest.TestCase):
 
     def setUp(self):
-        logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s', level=logging.INFO)
+        logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s', level=logging.DEBUG)
         cfg = config.Config.instance()
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
 
@@ -30,7 +30,12 @@ class TestCacheMethods(unittest.TestCase):
 
     def test_options(self):
         cfg = config.Config.instance()
+        cfg.init("config.txt", "source", "backup")
         self.assertEquals(cfg.get("global", "rescan"), "5m")
+        self.assertEquals(cfg.get("global", "BLOCKSIZE"), "128K")
+        self.assertEquals(cfg.get("global", "NBLOCKS"), "10")
+        self.assertEquals(cfg.get("global", "IO_RATELIMIT"), "10MB/s")
+
         
 
 if __name__ == "__main__":
