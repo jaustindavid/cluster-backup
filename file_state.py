@@ -149,6 +149,10 @@ def escape_special_chars(string):
     return new_string
 
 
+def looks_remote(string):
+    return re.match(r'^[^/]+:', string)
+
+
 # returns an exit code: 0 == good, !0 == bad
 def rsync(source, dest, options = [], **kwargs):
     cfg = config.Config.instance()
@@ -157,9 +161,9 @@ def rsync(source, dest, options = [], **kwargs):
 
     RSYNC = "rsync"
 	# rsync is silly about escaping spaces -- remote locations ONLY
-    if ":" in source:
-        source = escape_special_chars(source)
-    if ":" in dest:
+    if looks_remote(source):
+         source = escape_special_chars(source)
+    if looks_remote(dest):
         dest = escape_special_chars(dest)
     print(source, dest)
     RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))

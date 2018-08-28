@@ -29,8 +29,15 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(file_state.escape_special_chars(string), \
                             r'this\ is\ \(a\ neato\)\ string\ \&\ stuff')
 
+    def test_looks_remote(self):
+        string = r'localhost:/path/to/file'
+        self.assertTrue(file_state.looks_remote(string))
+        string = r'/tmp/localhost:path/to/file'
+        self.assertFalse(file_state.looks_remote(string))
+
 
     def test_rsync(self):
+        return
         global tempdir
         cfg = config.Config.instance()
         cfg.set("global", "verbose", "yes")
