@@ -381,9 +381,12 @@ class Clientlet(Thread):
             sock.settimeout(30)  # 30s socket timeout
             sock.sendall(bytes(message, 'ascii'))
             data = str(sock.recv(BUFFER_SIZE), 'ascii')
+        except socket.timeout:
+            self.logger.exception("timed out")
+            return comms.Communique(None)
         except BrokenPipeError:
             data = "__none__"
-            self.logger.exception(f"{self.context} got that broken pipe")
+            self.logger.exception(f"got that broken pipe")
             self.del_socket(source_context)
 
         if data.startswith("size: "):
