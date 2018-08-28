@@ -78,7 +78,8 @@ class Clientlet(Thread):
         self.logger.info(f"Creating clientlet {self.context}")
 
         self.path = config.path_for(self.config.get(self.context, "backup"))
-        assert os.path.exists(self.path)
+        assert os.path.exists(self.path), f"{self.path} does not exist!"
+            
         self.allocation = 2*2**30 # GB; TODO automate this
         self.allocation = utils.str_to_bytes(
                             self.config.get(self.context, "size", 0))
