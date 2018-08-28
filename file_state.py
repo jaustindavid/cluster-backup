@@ -25,9 +25,9 @@ class FileState:
 
     def update(self, genChecksums = True):
         cfg = config.Config.instance()
-        BLOCKSIZE = int(str_to_bytes(cfg.get("global", 
-                                            "BLOCKSIZE", "1MB")))
+        BLOCKSIZE = str_to_bytes(cfg.get("global", "BLOCKSIZE", "1MB"))
         NBLOCKS = int(cfg.get("global", "NBLOCKS", 0))
+        IO_RATELIMIT = str_to_bytes(cfg.get("global", "IO_RATELIMIT", "0"))
         if self.prefix is not None:
             filename = f"{self.prefix}/{self.data['filename']}"
         else:
@@ -35,7 +35,7 @@ class FileState:
         
         if genChecksums:
             self.data['checksum'] = \
-                sum_sha256(filename, BLOCKSIZE, NBLOCKS)
+                sum_sha256(filename, BLOCKSIZE, NBLOCKS, IO_RATELIMIT)
         else:
             self.data['checksum'] = 'deferred'
         self.data['checksum_time'] = time.time()
@@ -91,9 +91,21 @@ class FileState:
 #
 # For tuning to an FS, set NBLOCKS to 0 (no sampling) and
 #  BLOCKSIZE to an integer multiple of the FS chunk size
-def sum_sha256(fname, BLOCKSIZE = 2**20, NBLOCKS = 0):
+def sum_sha256(fname, BLOCKSIZE = 2**20, NBLOCKS = 0, IO_RATELIMIT = 0):
     if not os.path.isfile(fname):
         return None
+
+    # print(f"{NBLOCKS} blocks @ {BLOCKSIZE}, limit {IO_RATELIMIT}")
+    def figure_ratelimiter(IO_RATELIMIT, BLOCKSIZE):
+        if not IO_RATELIMIT:
+            return 0
+        # N mbps -> 1/(<blocksize>*ratelimit)
+        # assumes IO is instantaneous
+        delay = BLOCKSIZE/IO_RATELIMIT
+        # print(f"{BLOCKSIZE} / {IO_RATELIMIT} == {delay}")
+        return delay
+
+    ratelimit_time = figure_ratelimiter(IO_RATELIMIT, BLOCKSIZE)
     hash_sha256 = hashlib.sha256()
     filestat = os.lstat(fname)
     with open(fname, "rb") as f:
@@ -107,6 +119,7 @@ def sum_sha256(fname, BLOCKSIZE = 2**20, NBLOCKS = 0):
             while len(file_buffer) > 0:
                 hash_sha256.update(file_buffer)
                 file_buffer = f.read(BLOCKSIZE)
+                if ratelimit_time: time.sleep(ratelimit_time)
         else:
             # "large" files > 10MB; randomly sample (up to) 10 blocks
             file_buffer = f.read(BLOCKSIZE)
@@ -120,6 +133,7 @@ def sum_sha256(fname, BLOCKSIZE = 2**20, NBLOCKS = 0):
                 # print(f"So far @ {count}:{f.tell()}: {hash_sha256.hexdigest()}")
                 hash_sha256.update(file_buffer)
                 file_buffer = f.read(BLOCKSIZE)
+                if ratelimit_time: time.sleep(ratelimit_time)
                 f.seek(step, 1)
                 count += 1
     return hash_sha256.hexdigest()
