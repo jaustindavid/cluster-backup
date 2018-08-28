@@ -220,7 +220,9 @@ class Servlet(Thread):
             # else:
             #     self.logger.debug(f"{client} not in {filename}")
         # TODO: make this better
-        return Communique(files)
+        c = Communique(files)
+        self.logger.debug(f"inventory: {c}")
+        return c
 
 
     # client wants a file: return the least-served which isn't on client
@@ -402,7 +404,7 @@ class Servlet(Thread):
             # self.logger.debug(f"returning {file} and moar")
             return files
         self.logger.debug("I got nothin'")
-        return None
+        return Communique(None)
 
 
     # should return the most-overserved file which is held
@@ -422,7 +424,7 @@ class Servlet(Thread):
             return Communique(self.random_subset(filenames, 20))
         else:
             self.logger.debug("no overserved files :/")
-            return None
+            return Communique(None)
 
 
     """ return one of (in order of preference):
@@ -434,17 +436,18 @@ class Servlet(Thread):
     def status(self, args):
         client = args[0]
         if self.underserved(args):
-            return "underserved"
+            return Communique("underserved")
         if self.request((client, 0)):
-            return "available"
+            return Communique("available")
         if self.overserved(args):
-            return "overserved"
-        return "just right"
+            return Communique("overserved")
+        return Communique("just right")
 
 
     def heartbeep(self, args):
         client = args[0]
         self.logger.info(f"heartbeep from {client}: {args}")
+        return Communique("ack")
 
 
     # handle a datagram request: returns a string
@@ -501,9 +504,10 @@ class Server:
     # action @@ server context @@ client context @@ arguments
     # action: context arg1, arg2
     def handle(self, request):
-        tokens = request.split(" @@ ") # TODO: Communique.build()
-        action, server_context = tokens[:2]
-        args = tokens[2:]
+        # tokens = request.split(" @@ ") # TODO: Communique.build()
+        response = Communique.build(request)
+        action, server_context = response[:2] # tokens[:2]
+        args = response[2:] # tokens[2:]
         if server_context not in self.servlets:
             return "__none__"
         self.logger.debug(f"acting: {server_context} => {action}({args})")
@@ -521,9 +525,9 @@ class Server:
             if not data:
                 break
             self.logger.debug(f"received {data}")
-            response = bytes(self.handle(data), 'ascii')
+            response = str(self.handle(data))
             self.logger.debug(f"returning {response}")
-            conn.sendall(response)
+            conn.sendall(bytes(response, 'ascii'))
         conn.close()
 
 

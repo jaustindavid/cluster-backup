@@ -120,7 +120,7 @@ class Clientlet(Thread):
         filestate = self.scanners[source_context].get(filename)
         response = self.send(source_context, "claim", filename, \
                             filestate["checksum"])
-        self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
+        # self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
         if response: 
             if response in ("ack", "keep"):
                 # self.files.append(filename)   # implied by ownership
@@ -279,6 +279,7 @@ class Clientlet(Thread):
         self.logger.debug(f"used {utils.bytes_to_str(self.consumption(), approximate=True)} of {utils.bytes_to_str(self.allocation)}")
         return self.allocation - self.consumption()
 
+
     def full_p(self):
         return self.free() <= 0
 
@@ -308,7 +309,7 @@ class Clientlet(Thread):
     def del_socket(self, source_context):
         sock = self.sockets[source_context]
         sock.close()
-        del return self.sockets[source_context]
+        del self.sockets[source_context]
 
 
     # send a command(args) to a source_context; 
@@ -320,24 +321,31 @@ class Clientlet(Thread):
         if not sock:
             return comms.Communique(None)
 
-        message = f"{command} @@ {source_context} @@ {self.context}"
-        if len(args) > 0:
-            message += " @@ " + " @@ ".join(args)
+        # message = f"{command} @@ {source_context} @@ {self.context}"
+        # if len(args) > 0:
+        #     message += " @@ " + " @@ ".join(args)
+        comm = comms.Communique(command, source_context, self.context)
+        comm.append(*args)
+        message = str(comm)
+
         self.logger.debug(f"sending '{message}'")
         try:
-            sock.send(message.encode())
-            data = sock.recv(BUFFER_SIZE)
-            data = data.decode()
+            sock.sendall(bytes(message, 'ascii'))
+            data = str(sock.recv(BUFFER_SIZE), 'ascii')
+            print(f"recv() got {data}")
+            # data = data.decode()
         except BrokenPipeError:
             data = "__none__"
             self.logger.exception(f"{self.context} got that broken pipe")
             self.del_socket(source_context)
 
-        self.logger.debug(f"received '{data}'")
-        if data == "n/a":
+            self.logger.debug(f"received >{data}<")
+        if not data or data == "n/a" or data == "__none__":
             data = None  # servlet not ready; treat like conn failure
-        ret = comms.Communique.build(data, negatives=("__none__", "None"))
-        self.logger.debug(f"ret={ret}, of type {type(ret)}")
+            ret = comms.Communique(None)
+        else:
+            ret = comms.Communique.build(data, negatives=("__none__", "None"))
+            self.logger.debug(f"ret={ret}, of type {type(ret)}")
         return ret
 
 
@@ -442,11 +450,12 @@ class Clientlet(Thread):
         server_statuses = {}
         for source_context in self.random_source_list:
             response = self.send(source_context, "status")
+            self.logger.debug(f"response is {type(response)}: >{response}<")
             if response:
-                if str(response) in server_statuses:
-                    server_statuses[str(response)].append(source_context)
+                if response[0] in server_statuses:
+                    server_statuses[response[0]].append(source_context)
                 else:
-                    server_statuses[str(response)] = [ source_context ]
+                    server_statuses[response[0]] = [ source_context ]
         return server_statuses
 
 
@@ -462,6 +471,7 @@ class Clientlet(Thread):
     """
     def step(self):
         self.server_statuses = self.check_on_servers()
+        self.logger.debug(f"statuses: {self.server_statuses}")
         if self.full_p():
             self.logger.debug("full; trying to drop")
             self.try_to_drop()
