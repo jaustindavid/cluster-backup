@@ -25,6 +25,7 @@ see step()
 
 
 TODO:
+- timeout requests
 - seek to balance replicas for a server
 - if I get overfull, is there a way to have another client shuffle so
     I can get straight?  Like, have an overserved client drop files
@@ -371,18 +372,15 @@ class Clientlet(Thread):
             return comms.Communique(None)
 
         # message = f"{command} @@ {source_context} @@ {self.context}"
-        # if len(args) > 0:
-        #     message += " @@ " + " @@ ".join(args)
         comm = comms.Communique(command, source_context, self.context)
         comm.append(*args)
         message = str(comm)
 
-        self.logger.debug(f"sending '{message}'")
+        # self.logger.debug(f"sending '{message}'")
         try:
+            sock.settimeout(30)  # 30s socket timeout
             sock.sendall(bytes(message, 'ascii'))
             data = str(sock.recv(BUFFER_SIZE), 'ascii')
-            print(f"recv() got {data}")
-            # data = data.decode()
         except BrokenPipeError:
             data = "__none__"
             self.logger.exception(f"{self.context} got that broken pipe")
@@ -391,55 +389,13 @@ class Clientlet(Thread):
         if data.startswith("size: "):
             data = self.recvall(sock, data)
 
-        self.logger.debug(f"received >{data}<")
+        # self.logger.debug(f"received >{data}<")
         if not data or data == "n/a" or data == "__none__":
             data = None  # servlet not ready; treat like conn failure
             ret = comms.Communique(None)
         else:
             ret = comms.Communique.build(data, negatives=("__none__", "None"))
-            self.logger.debug(f"ret={ret}, of type {type(ret)}")
-        return ret
-
-
-    # send "message" to host @ source_context; return the response
-    # mssage: <command> @@ server @@ <client> @@ <args>
-    # like "underserved @@ <server> @@ <client>" 
-    #   or "claim @@ <server> @@ <client> @@ <filename>"
-    #
-    # server can defer reqeusts with "n/a"; if so, just keep trying
-    def send_dgram(self, source_context, command, *args):
-        ADDRESS = self.sources[source_context]
-        PORT = int(self.config.get("global", "PORT", "5005"))
-        BUFFER_SIZE = 1024 # TODO: this should probably be VERYBIG for inventory
-        BUFFER_SIZE = 10*2**20 # 10MB
-        # TODO
-        message = f"{command} @@ {source_context} @@ {self.context}"
-        if len(args) > 0:
-            message += " @@ " + " @@ ".join(args)
-        # self.logger.debug(f"{message} -> {ADDRESS}:{PORT}:/{source_context}")
-
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            s.connect((ADDRESS, PORT))
-        except (ConnectionResetError, ConnectionRefusedError):
-            return comms.Communique(None)
-            return (None,)
-
-        self.logger.debug(f"sending {message}")
-        try:
-            s.send(message.encode())
-            data = s.recv(BUFFER_SIZE)
-            data = data.decode()
-        except BrokenPipeError:
-            data = "__none__"
-            self.logger.exception(f"{self.context} got that broken pipe")
-
-        s.close()
-        self.logger.debug(f"received '{data}'")
-        if data == "n/a":
-            data = None  # servlet not ready; treat like conn failure
-        ret = comms.Communique.build(data, negatives=("__none__", "None"))
-        self.logger.debug(f"ret={ret}, of type {type(ret)}")
+            # self.logger.debug(f"ret={ret}, of type {type(ret)}")
         return ret
 
 
@@ -506,7 +462,7 @@ class Clientlet(Thread):
         server_statuses = {}
         for source_context in self.random_source_list:
             response = self.send(source_context, "status")
-            self.logger.debug(f"response is {type(response)}: >{response}<")
+            # self.logger.debug(f"response is {type(response)}: >{response}<")
             if response:
                 if response[0] in server_statuses:
                     server_statuses[response[0]].append(source_context)
