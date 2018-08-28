@@ -30,7 +30,7 @@ class TestCacheMethods(unittest.TestCase):
 
     def test_options(self):
         cfg = config.Config.instance()
-        self.assertEquals(cfg.get("global", "rescan"), "1d")
+        self.assertEquals(cfg.get("global", "rescan"), "5m")
         
 
 if __name__ == "__main__":
