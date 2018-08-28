@@ -382,12 +382,14 @@ class Clientlet(Thread):
             sock.sendall(bytes(message, 'ascii'))
             data = str(sock.recv(BUFFER_SIZE), 'ascii')
         except socket.timeout:
-            self.logger.exception("timed out")
+            self.logger.exception("timed out in send()")
+            self.del_socket(source_context)
             return comms.Communique(None)
         except BrokenPipeError:
             data = "__none__"
             self.logger.exception(f"got that broken pipe")
             self.del_socket(source_context)
+            return comms.Communique(None)
 
         if data.startswith("size: "):
             data = self.recvall(sock, data)
