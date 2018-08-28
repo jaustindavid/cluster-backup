@@ -14,20 +14,17 @@ The Clientlet owns a local filesystem.  It runs a Scanner which
 actually watches files and checksums.  The Clientlet will request
 files of sources, trusting that they will volunteer needy files.
 
+Clientlet manages to a configured "size", or possibly can "reserve"
+space for other use.  It will try to *always* leave "reserve" space
+available, so if you use the FS for other purposes, the Clientlet's
+consumption will grow/shrink actively.
+
+
 BEHAVIOUR
 see step()
 
-TODONE:
-- inform()
-    make a "are we good" message, for the server to have the opportunity
-    to ask the client for an update (in the case where a server has no 
-    state); possibly as a response to "overserved"
-- inventory():
-    on startup, have the client ask the server IF I should be holding files 
-    like an "inform 0"
 
 TODO:
-- (optionally) ignore a source / don't serve my own backups
 - seek to balance replicas for a server
 - if I get overfull, is there a way to have another client shuffle so
     I can get straight?  Like, have an overserved client drop files
@@ -81,18 +78,16 @@ class Clientlet(Thread):
         self.path = config.path_for(self.config.get(self.context, "backup"))
         assert os.path.exists(self.path), f"{self.path} does not exist!"
             
-        self.allocation = utils.str_to_bytes(
-                            self.config.get(self.context, "size", 0))
-        assert self.allocation > 0
-        self.bailing = False
-        self.sockets = {}
-
         # ALL source contexts (we care a lot)
         self.sources = {}
         self.scanners = {}
         self.random_source_list = []
         self.build_sources()
         self.drops = 0  # count the number of times I drop a file
+
+        self.update_allocation()
+        self.bailing = False
+        self.sockets = {}
 
 
     def build_sources(self):
@@ -293,20 +288,35 @@ class Clientlet(Thread):
     # calculate my consumed storage (based on the sum of sizes
     #   in each scanner) and compare to what I'm allowed to
     #   consume; return allotment - consumption
+    def consumption(self):
+        consumed = 0
+        for source_context in self.scanners:
+            consumed += self.scanners[source_context].consumption()
+        return consumed
+
+
+    def update_allocation(self):
+        reserve = utils.str_to_bytes(self.config.get(self.context,
+                                                        "reserve", "0"))
+        size = utils.str_to_bytes(self.config.get(self.context, "size", "0"))
+        if reserve:
+            stat = os.statvfs(self.path)
+            fs_free = stat.f_frsize * stat.f_bavail
+            self.logger.debug(f"consumed: {self.consumption()/2**30:5.2f}, free: {fs_free/2**30:5.2f}, reserve: {reserve/2**30:5.2f}")
+            self.allocation = max(0, self.consumption() + fs_free - reserve)
+        elif size:
+            self.allocation = size
+        assert self.allocation, "Can't start; define 'size' or 'reserve'"
+
     def free(self):
         self.logger.debug(f"used {utils.bytes_to_str(self.consumption(), approximate=True)} of {utils.bytes_to_str(self.allocation)}")
+        self.update_allocation()
         return self.allocation - self.consumption()
 
 
     def full_p(self):
         return self.free() <= 0
 
-
-    def consumption(self):
-        consumed = 0
-        for source_context in self.scanners:
-            consumed += self.scanners[source_context].consumption()
-        return consumed
 
 
     # if needed, create a long-lived socket
@@ -476,15 +486,19 @@ class Clientlet(Thread):
 
     # hunt for ONE overserved file to drop, then drop it
     def try_to_drop(self):
-        if "underserved" in self.server_statuses:
-            source_context = random.choice(self.server_statuses['underserved'])
+        self.logger.debug("trying to drop:")
+        self.logger.debug(f"statuses: {self.server_statuses}")
+        if 'overserved' in self.server_statuses:
+            source_context = random.choice(self.server_statuses['overserved'])
         # for source_context in self.random_source_list:
-            response = self.send(source_context, "overserved")
+            response = self.send(source_context, 'overserved')
             if response:
                 self.logger.debug(response)
                 filename = response[0]
                 self.logger.debug(f"overserved: {source_context}:{filename}")
                 return self.drop(source_context, filename)
+        else:
+            self.logger.debug("couldn't find overserved")
         return False  # nothing dropped
 
 
