@@ -9,7 +9,7 @@ def logger_str(classname):
     return string[string.index('.')+1:string.index("'>")]
 
 
-# 1024 -> "1k" 
+# 1024 -> "1.000k" 
 def bytes_to_str(bytes, **kwargs):
     def helper(bytes, string, magnitude, suffix):
         if bytes > magnitude:
@@ -17,7 +17,6 @@ def bytes_to_str(bytes, **kwargs):
             bytes = bytes % magnitude
         return (bytes, string)
 
-    approximate = "approximate" in kwargs and kwargs["approximate"]
     string = ""
 
     if bytes > 2**40:
@@ -31,40 +30,29 @@ def bytes_to_str(bytes, **kwargs):
     return f"{bytes}B"
         
 
-    (bytes, string) = helper(bytes, string, 2**40, "T")
-    if string is not "" and approximate: return "~" + string
-    (bytes, string) = helper(bytes, string, 2**30, "G")
-    if string is not "" and approximate: return "~" + string
-    (bytes, string) = helper(bytes, string, 2**20, "M")
-    if string is not "" and approximate: return "~" + string
-    (bytes, string) = helper(bytes, string, 2**10, "K")
-    if string is not "" and approximate: return "~" + string
-    if bytes > 0: 
-        string = f"{string}{bytes}B"
-    return string
-
-
-# "99gb" -> 99*2**30
+# "99gb" -> 99*2**30, "1.5t" -> 1.5*2**40
 # suffices: t, g, m, k (trailing b is fine / ignored)
-def str_to_bytes(string):
-    string = string.lower()
-    nr = 0
-    while string is not "":
-        if string[0].isdigit():
-            nr = nr*10 + int(string[0])
-        elif string[0] is "k":
-            return nr * 2**10
-        elif string[0] is "m":
-            return nr * 2**20
-        elif string[0] is "g":
-            return nr * 2**30
-        elif string[0] is "t":
-            return nr * 2**40
-        else:
-            return nr
-        string = string[1:]
-    return nr
+def str_to_bytes(data):
 
+    data = data.lower()
+    i = 0
+    while i < len(data) and (data[i].isdigit() or data[i] == "."): 
+        i += 1
+    if not i: 
+        return 0
+    nr = float(data[:i])
+    if len(data) > i:
+        if data[i] is "k":
+            return int(nr * 2**10)
+        if data[i] is "m":
+            return int(nr * 2**20)
+        if data[i] is "g":
+            return int(nr * 2**30)
+        if data[i] is "t":
+            return int(nr * 2**40)
+        # FALLTHROUGH
+    return int(nr)
+        
 
 # 64 -> "1m4s"
 def duration_to_str(seconds):

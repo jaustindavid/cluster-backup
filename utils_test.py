@@ -17,10 +17,11 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(utils.str_to_bytes("27T"), 27*2**40)
         self.assertEquals(utils.str_to_bytes("27mbT"), 27*2**20)
         self.assertEquals(utils.str_to_bytes("27gbT"), 27*2**30)
-        self.assertEquals(utils.bytes_to_str(27*2**30, approximate=True), "~27G")
-        self.assertEquals(utils.bytes_to_str(27*2**30+11*2**10, approximate=True), "~27G")
-        self.assertEquals(utils.bytes_to_str(27*2**30+11*2**10), "27G11K")
-        self.assertEquals(utils.bytes_to_str(27*2**20), "27M")
+        self.assertEquals(utils.bytes_to_str(27*2**30), "27.000G")
+        self.assertEquals(utils.bytes_to_str(27*2**30+11*2**10), "27.000G")
+        self.assertEquals(utils.bytes_to_str(27*2**30+11*2**10), "27.000G")
+        self.assertEquals(utils.bytes_to_str(27*2**20), "27.000M")
+        self.assertEquals(utils.str_to_bytes("1.2k"), 1228)
         
 
     def test_durations(self):
