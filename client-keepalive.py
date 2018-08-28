@@ -27,6 +27,7 @@ TODONE:
     like an "inform 0"
 
 TODO:
+- (optionally) ignore a source / don't serve my own backups
 - seek to balance replicas for a server
 - if I get overfull, is there a way to have another client shuffle so
     I can get straight?  Like, have an overserved client drop files
@@ -80,7 +81,6 @@ class Clientlet(Thread):
         self.path = config.path_for(self.config.get(self.context, "backup"))
         assert os.path.exists(self.path), f"{self.path} does not exist!"
             
-        self.allocation = 2*2**30 # GB; TODO automate this
         self.allocation = utils.str_to_bytes(
                             self.config.get(self.context, "size", 0))
         assert self.allocation > 0
@@ -88,7 +88,6 @@ class Clientlet(Thread):
         self.sockets = {}
 
         # ALL source contexts (we care a lot)
-        self.source_contexts = self.config.get_contexts_for_key("source")
         self.sources = {}
         self.scanners = {}
         self.random_source_list = []
@@ -97,7 +96,10 @@ class Clientlet(Thread):
 
 
     def build_sources(self):
-        for source_context, source in self.source_contexts.items():
+        source_contexts = self.config.get_contexts_for_key("source")
+        self.prune_sources(source_contexts)
+        
+        for source_context, source in source_contexts.items():
             self.sources[source_context] = config.host_for(source)
             path = f"{self.path}/{source_context}"
             self.scanners[source_context] = \
@@ -105,6 +107,23 @@ class Clientlet(Thread):
                                 name=f"{self.context}:{source_context}")
             self.random_source_list.append(source_context)
         random.shuffle(self.random_source_list)
+
+
+    # TODO: if I'm holding files for this source, remove them
+    def prune_sources(self, source_contexts):
+        # prune any sources I'm ignoring
+        ignored_sources = self.config.get(self.context, "ignore source")
+        if ignored_sources:
+            if type(ignored_sources) is str:
+                ignored_sources = [ ignored_sources ]
+            banned_contexts = []
+            for context, source in source_contexts.items():
+                for ignored_source in ignored_sources:
+                    if source.startswith(ignored_source):
+                        banned_contexts.append(context)
+            for context in banned_contexts:
+                del source_contexts[context]
+        return source_contexts
 
 
     # I (think I) have this file; claim it
@@ -201,10 +220,8 @@ class Clientlet(Thread):
         # 0: do I have it?
         if self.scanners[source_context].contains_p(filename):
             self.logger.debug(f"I already have {filename}")
-            # stomp on filename -- give him everything
-            # TODO: send this as one big list (maybe NBD), or maybe just one
-            for filename in list(self.scanners[source_context].keys()):
-                self.claim(source_context, filename, dropping=True)
+            # just send the one; inform() will handle the rest
+            self.claim(source_context, filename, dropping=True)
             return
 
         # 1: build the filenames (full path) for source + dest
