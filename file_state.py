@@ -153,7 +153,8 @@ def looks_remote(string):
     return re.match(r'^[^/]+:', string)
 
 
-# returns an exit code: 0 == good, !0 == bad
+# returns a Unix exit code: 0 == good, !0 == bad
+# TODO: move options into kwargs
 def rsync(source, dest, options = [], **kwargs):
     cfg = config.Config.instance()
     verbose = cfg.get("global", "verbose", False)
@@ -167,6 +168,7 @@ def rsync(source, dest, options = [], **kwargs):
         dest = escape_special_chars(dest)
     print(source, dest)
     RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))
+    RSYNC_BWLIMIT = str(cfg.get("global", "RSYNC BWLIMIT", 0))
     command = [ RSYNC, "-a", "--inplace", "--partial", \
                 "--timeout", RSYNC_TIMEOUT, source, dest ]
     if len(options) > 0:
@@ -175,6 +177,8 @@ def rsync(source, dest, options = [], **kwargs):
     #     command += [ f"--exclude={item}" for item in ignorals ] 
     if True or verbose:
         command += ["-v", "--progress"]
+    if RSYNC_BWLIMIT:
+        command += ["--bwlimit", "RSYNC_BWLIMIT"]
     logger = logging.getLogger("rsync")
     logger.debug(command)
     if dryrun:
