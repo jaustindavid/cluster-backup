@@ -26,6 +26,7 @@ see step()
 
 TODO:
 - timeout requests
+- retry claims (esp on inform)
 - seek to balance replicas for a server
 - if I get overfull, is there a way to have another client shuffle so
     I can get straight?  Like, have an overserved client drop files
@@ -125,13 +126,17 @@ class Clientlet(Thread):
     # I (think I) have this file; claim it
     #   if my claim is invalid (checksum doesn't match), 
     #   remove it
-    def claim(self, source_context, filename, counter=0, **kwargs):
-        if "dropping" in kwargs:
-            dropping = kwargs["dropping"]
+    def claim(self, source_context, filename, **kwargs):
+        if 'dropping' in kwargs:
+            dropping = kwargs['dropping']
         else:
             dropping = False
-        self.logger.debug(f"claiming {source_context}:/{filename}")
-        # scan should be cheap, so no per-file scan
+        if 'retry' in kwargs:
+            retry = kwargs['retry']
+        else:
+            retry = 0
+        # self.logger.debug(f"claiming {source_context}:/{filename}")
+        # scan should be cheap, so no per-file scan #TODO -- not true
         self.scanners[source_context].scan()
         filestate = self.scanners[source_context].get(filename)
         response = self.send(source_context, "claim", filename, \
@@ -140,12 +145,12 @@ class Clientlet(Thread):
         if response: 
             if response in ("ack", "keep"):
                 # self.files.append(filename)   # implied by ownership
-                self.logger.debug(f"{self.context} claimed {filename} successfully")
+                self.logger.debug(f"claimed {filename} successfully")
             elif response in ("update", "invalid checksum"):
-                if counter:
-                    counter -= 1
+                if retry:
+                    retry -= 1
                     self.logger.debug(f"failed, but retrying {counter} times")
-                    self.retrieve(source_context, filename, counter)
+                    self.retrieve(source_context, filename, retry=retry)
                 else:
                     self.logger.debug(f"Giving up, can't seem to copy {filename}")
                     self.drop(source_context, filename)
@@ -237,7 +242,7 @@ class Clientlet(Thread):
 
         if rsync_stat == 0:
             # 3: record it
-            self.claim(source_context, filename, counter, dropping=True)
+            self.claim(source_context, filename, dropping=True) # no retry
         else:
             self.logger.error("Failed to rsync???")
             raise FileNotFoundError
@@ -545,7 +550,7 @@ class Clientlet(Thread):
             sleep_time = self.get_interval("rescan")//2
             self.logger.info(f"running")
             while self.step():
-                time.sleep(3)  # hysteresis
+                # time.sleep(3)  # hysteresis
                 self.logger.debug(f"stepping again")
                 if timer.once_every(sleep_time):
                     for source_context in self.scanners:
