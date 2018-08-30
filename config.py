@@ -1,6 +1,6 @@
 #! python3.x
 
-import platform, os, re, logging, sys, rpyc, json
+import platform, os, re, logging, sys, json
 import utils
 from singleton import Singleton
 
