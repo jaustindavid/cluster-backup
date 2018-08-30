@@ -111,7 +111,7 @@ class Config:
                     self.logger.debug(f"> {line.strip()}")
                     line = line.split("#", 1)[0].strip()
                     tokens = line.split(": ", 1)
-                    if tokens[0] == "master config" and not context:
+                    if tokens[0] == "master config" and context == "global":
                         self.master_config = tokens[1]
                     elif tokens[0] in self.primary_keys:
                         self.logger.debug(f"got one: {tokens[0]} :: {tokens[1]}")
