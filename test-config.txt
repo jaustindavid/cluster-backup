@@ -1,6 +1,13 @@
-options: PORT: 5005, ADDRESS: localhost
+PORT: 5005
+BWLIMIT: 5000
+BLOCKSIZE: 1MB
+BLOCKS: 100
+LAZY_WRITE: 60s
+hysteresis: 3s
+rescan: 5m
 source: localhost:~/src/cb/test/source1 # ~1gb
 copies: 2
+rescan: 1h
 source: localhost:~/src/cb/test/source2 # ~3gb
 copies: 2
 update: 24h
@@ -8,7 +15,8 @@ source: localhost:~/src/cb/test/source3 # ~5gb
 copies: 1
 
 backup: localhost:~/src/cb/test/backup1
-size: 1g
+ignore source: localhost:~/src/cb/test/source3 # ~5gb
+reserve: 80g
 backup: localhost:~/src/cb/test/backup2
 size: 1g
 backup: localhost:~/src/cb/test/backup3
