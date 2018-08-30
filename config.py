@@ -1,7 +1,7 @@
 #! python3.x
 
 import platform, os, re, logging, sys, json
-import utils
+import utils, file_state
 from singleton import Singleton
 
 """
