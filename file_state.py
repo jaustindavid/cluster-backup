@@ -178,7 +178,7 @@ def rsync(source, dest, options = [], **kwargs):
     if True or verbose:
         command += ["-v", "--progress"]
     if RSYNC_BWLIMIT:
-        command += ["--bwlimit", "RSYNC_BWLIMIT"]
+        command += ["--bwlimit", RSYNC_BWLIMIT]
     logger = logging.getLogger("rsync")
     logger.debug(command)
     if dryrun:
