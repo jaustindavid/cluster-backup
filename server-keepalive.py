@@ -47,6 +47,7 @@ class Servlet(Thread):
         self.path = config.path_for(self.config.get(self.context, "source"))
         self.scanner = scanner.Scanner(self.context, self.path)
 
+        # TODO: rename this "clients"
         self.files = dict() # NOT persistent!  On startup assume nothing
         self.drains = elapsed.ExpiringDict(300) # NOT persistent!
         self.locks = locker.Locker(5)
@@ -64,6 +65,7 @@ class Servlet(Thread):
         self.logger.info("Ready to serve")
         self.handling = True
         while not self.bailout:
+            self.config.load()
             self.scanner.scan()
             self.update_files()
             self.heartbeat()
@@ -234,49 +236,6 @@ class Servlet(Thread):
         return c
 
 
-    # client wants a file: return the least-served which isn't on client
-    # but, if possible, match a size-hint (if they ask for 100mb, try not
-    # to offer 1gb)
-    def DEADunderserved_for(self, client):
-        files = []
-        for filename in self.files:
-            if client not in self.files[filename]:
-                if len(self.files[filename]) < self.copies:
-                    # self.logger.debug(f"request: {filename} is not held by client")
-                    files.append(filename)
-        if len(files) > 0:
-            files = sorted(files, key=lambda filename: len(self.files[filename]))
-            return self.random_subset(files, 10)
-        else:
-            return None
-
-
-    def DEADavailable_for(self, client, sizehint=0):
-        files = []
-        for filename in self.files:
-            if client not in self.files[filename]:
-                files.append(filename)
-
-        if len(files) == 0:
-            self.logger.debug(f"no files available for {client}")
-            return None
-
-        self.logger.debug(f"request: candidates are {files}")
-        files = sorted(files, reverse=True, key=lambda \
-                        filename: int(self.scanner[filename]["size"]))
-        files = sorted(files, 
-                        key=lambda filename: len(self.files[filename]))
-        self.logger.debug(f"request: candidates are now {files}")
-        smalls = []
-        for filename in files:
-            if sizehint and int(self.scanner[filename]["size"]) < int(sizehint):
-                smalls.append(filename)
-        if len(smalls) > 0:
-            return smalls
-        else:
-            return files
-
-
     def lockname(self, filename):
         return utils.hash(filename)
 
@@ -345,39 +304,6 @@ class Servlet(Thread):
             return Communique(filename, str(self.scanner[filename]["size"]))
         else:
             return Communique("__none__", negatives=("__none__",))
-
-
-# return a file not held by client
-# - if any unserved exist, return one 
-#   - small enough, if possible
-# - one of the least-served
-#   but if I have to, return an oversized file
-#   (to inspire the agent to MAYBE rebalance)
-
-    def DEADrequest(self, args):
-        client, sizehint = args[:2]
-        self.logger.debug("looking for an underserved file")
-        files = self.underserved_for(client)
-        self.logger.debug(files)
-
-        # underserved files
-        self.logger.debug(f"underserved files for {client}")
-        if files:
-            filename = random.choice(files)
-            self.logger.debug(f"trying to return {filename}")
-            if self.files[filename]:
-                self.logger.debug(f"file data is {self.scanner[filename]}")
-                return Communique(filename, str(self.scanner[filename]["size"]))
-            else:
-                return Communique(filename, 0)
-
-        self.logger.debug("no underserved; giving any")
-        files = self.available_for(client, sizehint)
-        if files:
-            filename = random.choice(files)
-            return Communique(filename, str(self.scanner[filename]["size"]))
-        else:
-            return Communique("__none__", truthiness=False)
 
 
     # tries to return qty items from list(data)
