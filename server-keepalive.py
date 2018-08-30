@@ -69,7 +69,8 @@ class Servlet(Thread):
             self.heartbeat()
             sleep_time = utils.str_to_duration( \
                             self.config.get(self.context, "rescan"))
-            self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
+            self.logger.info(f"Scanning complete; will re-scan in " \
+                                + "{utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
 
     
