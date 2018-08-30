@@ -74,7 +74,7 @@ class Scanner(PersistentDict):
         if False and filename.endswith(self.pd_filename):
             return True
         for suffix in ignorals:
-            # we only ignore suffixes "magically"
+           # we only ignore suffixes "magically"
             if filename.endswith(suffix):
                 return True
         return False
@@ -142,10 +142,11 @@ class Scanner(PersistentDict):
                 continue
             if not self.contains_p(fqde):
                 # no FQDE: (maybe) checksum & write it
-                self.logger.debug(f"new: {fqde}")
-                actualState = FileState(fqde, gen_checksums, prefix=self.path)
-                self[fqde] = actualState.to_dict()
-                self.logger.debug(self[fqde]["size"])
+                # self.logger.debug(f"new: {fqde}")
+                # actualState = FileState(fqde, gen_checksums, prefix=self.path)
+                # self[fqde] = actualState.to_dict()
+                # self.logger.debug(self[fqde]["size"])
+                self.update(fqde, gen_checksums)
                 changed = True
             else:
                 # TODO: look for bitrot?
@@ -155,17 +156,28 @@ class Scanner(PersistentDict):
                 if actualState.maybechanged(self[fqde]) or \
                     (gen_checksums and self[fqde]["checksum"] == "deferred"):
                     # ... maybe changed.  (maybe) checksum + write
-                    self.logger.debug(f"changed: {fqde}")
-                    self.logger.debug(f"old: {self[fqde]}")
-                    self.logger.debug(f"new: {actualState}")
-                    actualState = FileState(fqde, gen_checksums, 
-                                            prefix=self.path)
-                    self[fqde] = actualState.to_dict()
+                    # self.logger.debug(f"changed: {fqde}")
+                    # self.logger.debug(f"old: {self[fqde]}")
+                    # self.logger.debug(f"new: {actualState}")
+                    # actualState = FileState(fqde, gen_checksums, 
+                    #                         prefix=self.path)
+                    # self[fqde] = actualState.to_dict()
+                    self.update(fqde, gen_checksums)
                     changed = True
                 else:
                     # ... probably same.  preserve the old one (touch it)
                     self.touch(fqde)
         return changed
+
+
+    # update one file
+    def update(self, fqde, gen_checksums=True):
+        # self.logger.debug(f"changed: {fqde}")
+        # self.logger.debug(f"old: {self[fqde]}")
+        actualState = FileState(fqde, gen_checksums, 
+                                prefix=self.path)
+        # self.logger.debug(f"new: {actualState}")
+        self[fqde] = actualState.to_dict()
 
 
     def drop(self, filename):
