@@ -2,6 +2,8 @@
 
 import sys, random, time, socket, logging, os, _thread
 from threading import Thread
+# from multiprocessing import Process as Thread
+
 import config, elapsed, scanner, persistent_dict, utils, locker
 from comms import Communique
 
@@ -166,16 +168,22 @@ class Servlet(Thread):
             return Communique("drop", truthiness=False)
             return Communique("NACK", truthiness=False)
 
-        filestate = self.scanner.get(filename)
+        filestate = self.scanner[filename]
         self.logger.debug(f"{client} claims file {filename}")
         if filestate["checksum"] == "deferred":
             self.logger.debug("I have a deferred checksum; let it go (for now)")
             # return Communique("keep", truthiness=True)
             # fallthrough
         elif checksum != filestate["checksum"]:
-            self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
-            return Communique("update", truthiness=False)
-            return Communique("NACK", truthiness=False)
+            self.logger.warn(f"{client} has a different checksum ...")
+            self.scanner.update(filename)
+            filestate = self.scanner[filename]
+            if checksum != filestate["checksum"]:
+                self.logger.warn(f"{client} has the wrong checksum!\n" * 10)
+                return Communique("update", truthiness=False)
+            else:
+                self.logger.warn(f"{client} was right; I'm straight now")
+                return Communique("keep", truthiness=True)
 
         if filename not in self.files:
             self.logger.warn(f"I'm learning about {filename}")
@@ -500,14 +508,22 @@ class Server:
         self.logger.debug(f"heartbeep from {client}: {args}")
 
 
+    def auditor(self):
+        timer = elapsed.ElapsedTimer()
+        while True:
+            time.sleep(15)
+            self.logger.info("Servlet status update: ")
+            for context, servlet in self.servlets.items():
+                servlet.audit()
+
+
     # client sends to a specific server context
     # action @@ server context @@ client context @@ arguments
     # action: context arg1, arg2
-    def handle(self, request):
-        # tokens = request.split(" @@ ") # TODO: Communique.build()
-        response = Communique.build(request)
-        action, server_context = response[:2] # tokens[:2]
-        args = response[2:] # tokens[2:]
+    def handle(self, data):
+        request = Communique.build(data)
+        action, server_context = request[:2]
+        args = request[2:]
         if server_context not in self.servlets:
             return "__none__"
         self.logger.debug(f"acting: {server_context} => {action}({args})")
@@ -550,7 +566,6 @@ class Server:
         PORT = int(self.config.get("global", "PORT", "5005"))
         BUFFER_SIZE = 1024 # datagrams (inbound) are very small
 
-        timer = elapsed.ElapsedTimer()
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -558,6 +573,7 @@ class Server:
         s.bind((ADDRESS, PORT))
         s.listen(10)
         self.logger.info(f"Server starting, listening on {PORT}")
+        _thread.start_new_thread(self.auditor, ())
         while True:
             conn, addr = s.accept()
             # self.logger.debug(f"Connecting address: {addr}")
@@ -570,10 +586,6 @@ class Server:
             #         self.logger.debug(f"returning {response}")
             #     conn.sendall(response)
             _thread.start_new_thread(self.handler, (conn, addr))
-            if timer.once_every(10):
-                self.logger.info("Servlet status update: ")
-                for context, servlet in self.servlets.items():
-                    servlet.audit()
 
 
 
