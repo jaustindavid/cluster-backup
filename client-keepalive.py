@@ -135,7 +135,7 @@ class Clientlet(Thread):
             retry = kwargs['retry']
         else:
             retry = 0
-        # self.logger.debug(f"claiming {source_context}:/{filename}")
+        self.logger.debug(f"claiming {source_context}:/{filename}")
         # scan should be cheap, so no per-file scan #TODO -- not true
         self.scanners[source_context].scan()
         filestate = self.scanners[source_context].get(filename)
