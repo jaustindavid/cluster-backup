@@ -115,7 +115,7 @@ class Communique:
         try:
             c = Communique(json.loads(data), **kwargs)
         except json.decoder.JSONDecodeError:
-            self.logger.exception("Error decoding!")
+            logger.exception("Error decoding!")
             return Communique(None)
         # print(f"I survived with {c}")
         return c
