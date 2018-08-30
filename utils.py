@@ -33,7 +33,7 @@ def bytes_to_str(bytes, **kwargs):
 # "99gb" -> 99*2**30, "1.5t" -> 1.5*2**40
 # suffices: t, g, m, k (trailing b is fine / ignored)
 def str_to_bytes(data):
-
+    if not data: return 0
     data = data.lower()
     i = 0
     while i < len(data) and (data[i].isdigit() or data[i] == "."): 
@@ -79,6 +79,7 @@ def duration_to_str(seconds):
 #   ... iteratively walk the string, scaling ## by d/h/m/s
 # side effect: other characters are ignored, 1z6 -> 16 (seconds)
 def str_to_duration(string):
+    if not string: return 0
     nr = 0
     total = 0
     string = string.lower()
