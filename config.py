@@ -1,6 +1,6 @@
 #! python3.x
 
-import platform, os, re, logging, sys
+import platform, os, re, logging, sys, rpyc, json
 import utils
 from singleton import Singleton
 
@@ -38,9 +38,10 @@ Structure:
 class Config:
     def __init__(self):
         self.data = {}
-        self.config = {}
+        # self.config = {}
         self.logger = logging.getLogger(utils.logger_str(__class__))
         self.logger.setLevel(logging.INFO)
+        self.master = None
 
 
     def init(self, filename, *primary_keys, **kwargs):
@@ -61,6 +62,14 @@ class Config:
         self.read_config()
         # load for realz
         self.load()
+
+
+    def serialize(self):
+        return json.dumps(self.data)
+
+
+    def deserialize(self, data):
+        self.data = json.loads(data)
 
 
     def load(self):
@@ -119,7 +128,7 @@ class Config:
             sys.exit(1)
 
 
-    def get_dirs(self, hostname = None):
+    def DEADget_dirs(self, hostname = None):
         masters = []
         slaves = {}
         if hostname == None:
