@@ -135,9 +135,10 @@ class Clientlet(Thread):
             retry = kwargs['retry']
         else:
             retry = 0
-        self.logger.debug(f"claiming {source_context}:/{filename}")
+        self.logger.debug(f"claiming {source_context}:{filename}")
         # scan should be cheap, so no per-file scan #TODO -- not true
-        self.scanners[source_context].scan()
+        # self.scanners[source_context].scan()
+        self.scanners[source_context].update(filename)
         filestate = self.scanners[source_context].get(filename)
         response = self.send(source_context, "claim", filename, \
                             filestate["checksum"])
@@ -470,14 +471,16 @@ class Clientlet(Thread):
 
     def check_on_servers(self):
         server_statuses = {}
+        self.logger.debug("checking status")
         for source_context in self.random_source_list:
             response = self.send(source_context, "status")
-            # self.logger.debug(f"response is {type(response)}: >{response}<")
+            self.logger.debug(f"response: >{response}<")
             if response:
-                if response[0] in server_statuses:
-                    server_statuses[response[0]].append(source_context)
-                else:
-                    server_statuses[response[0]] = [ source_context ]
+                for status in response:
+                    if status in server_statuses:
+                        server_statuses[status].append(source_context)
+                    else:
+                        server_statuses[status] = [ source_context ]
         return server_statuses
 
 
@@ -548,9 +551,10 @@ class Clientlet(Thread):
         while not self.bailing:
             # re-check this, in case config reloaded
             sleep_time = self.get_interval("rescan")//2
+            hysteresis = self.get_interval("hysteresis")
             self.logger.info(f"running")
             while self.step():
-                # time.sleep(3)  # hysteresis
+                if hysteresis: time.sleep(hysteresis)
                 self.logger.debug(f"stepping again")
                 if timer.once_every(sleep_time):
                     for source_context in self.scanners:

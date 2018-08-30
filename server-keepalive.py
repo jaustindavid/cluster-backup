@@ -69,8 +69,8 @@ class Servlet(Thread):
             self.heartbeat()
             sleep_time = utils.str_to_duration( \
                             self.config.get(self.context, "rescan"))
-            self.logger.info(f"Scanning complete; will re-scan in " \
-                                + "{utils.duration_to_str(sleep_time)}")
+            self.logger.info("Scanning complete; will re-scan in " \
+                                + f"{utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
 
     
@@ -436,21 +436,25 @@ class Servlet(Thread):
             return Communique(None)
 
 
-    """ return one of (in order of preference):
-            underserved: I need some coverage from you
-            available  : you COULD take some of my files, NBD
-            overserved : I've got more than enough coverage, you can drop some
+    """ return ANY of:
+            underserved: at least one of my files needs coverage from you
+            available  : all files are covered, but you could copy one
+            overserved : all files are covered and you could drop one
             just right : you have all my files, none are overserved
     """
     def status(self, args):
         client = args[0]
+        response = []
         if self.underserved(args):
-            return Communique("underserved")
+            response.append("underserved")
         if self.request((client, 0)):
-            return Communique("available")
+            response.append("available")
         if self.overserved(args):
-            return Communique("overserved")
-        return Communique("just right")
+            response.append("overserved")
+        if response:
+            return Communique(response)
+        else:
+            return Communique("just right")
 
 
     def heartbeep(self, args):
