@@ -177,7 +177,7 @@ def rsync(source, dest, options = [], **kwargs):
     #     command += [ f"--exclude={item}" for item in ignorals ] 
     if True or verbose:
         command += ["-v", "--progress"]
-    if RSYNC_BWLIMIT:
+    if RSYNC_BWLIMIT != "0":
         command += ["--bwlimit", RSYNC_BWLIMIT]
     logger = logging.getLogger("rsync")
     logger.debug(command)
