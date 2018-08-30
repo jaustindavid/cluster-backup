@@ -91,7 +91,7 @@ class Communique:
 
 
     def __iter__(self):
-        if len(self) == 1:
+        if type(self.contents) is str:
             return iter([ str(self.contents) ])
         else:
             return iter(self.contents)
@@ -99,10 +99,8 @@ class Communique:
 
     # a.k.a. "serialize"
     def __str__(self):
+        # TODO: encode truthiness & negatives
         return json.dumps(self.contents)
-        if type(self.contents) is list or type(self.contents) is tuple:
-            return self.special.join(map(str, self.contents))
-        return str(self.contents)
 
 
     # a.k.a. "deserialize"
