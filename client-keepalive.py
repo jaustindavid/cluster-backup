@@ -25,6 +25,7 @@ see step()
 
 
 TODO:
+- a global "status" engine to report what I'm doing
 - timeout requests
 - retry claims (esp on inform)
 - seek to balance replicas for a server
@@ -549,6 +550,7 @@ class Clientlet(Thread):
         self.inventory()    # asks the server
         self.inform()       # tells the server
         while not self.bailing:
+            self.config.load()
             # re-check this, in case config reloaded
             sleep_time = self.get_interval("rescan")//2
             hysteresis = self.get_interval("hysteresis")
@@ -568,12 +570,13 @@ class Clientlet(Thread):
 
 
     def __str__(self):
-        return f"{self.context}: {utils.bytes_to_str(self.consumption())}/{utils.bytes_to_str(self.allocation)}"
+        hostname = config.host_for(self.config.get(self.context, "backup"))
+        return f"{hostname}: {utils.bytes_to_str(self.consumption())}/{utils.bytes_to_str(self.allocation)}"
 
 
 # A Client represents this machine, and cares about ALL
-# backup relevant to this machine.  Server interaction is 
-# handled in the Clientlet
+# backup relevant to this machine.  Per-source interaction is 
+# handled in the Clientlet[s]
 #
 # My job is to run a bunch of per-backup Clientlets
 class Client:
