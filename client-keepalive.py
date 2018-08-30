@@ -165,9 +165,15 @@ class Clientlet(Thread):
             self.logger.debug("not dropping... (non-response)")
 
 
+    def unclaim(self, source_context, filename):
+        response = self.send(source_context, "unclaim", filename)
+        self.logger.debug(f"23235 response={response}, of type {type(response)}")
+        return response
+
+
     # inform (optionally a server, optionally of a filename)
     # that I have it
-    def inform(self, source_context=None, filename=None):
+    def DEADinform(self, source_context=None, filename=None):
         if source_context and filename: # DEAD
             self.claim(source_context, filename, dropping=False)
         elif source_context:            # DEAD
@@ -179,15 +185,9 @@ class Clientlet(Thread):
                     self.claim(source_context, filename, dropping=False)
 
 
-    def unclaim(self, source_context, filename):
-        response = self.send(source_context, "unclaim", filename)
-        self.logger.debug(f"23235 response={response}, of type {type(response)}")
-        return response
-        
-
     # inverse of "inform": what files should I have?
     # for this list of files, either claim or unclaim them
-    def inventory(self, source_context=None):
+    def DEADinventory(self, source_context=None):
         if source_context:
             response = self.send(source_context, "inventory")
             if response:
@@ -202,6 +202,29 @@ class Clientlet(Thread):
         else:
             for source_context in self.random_source_list:
                 self.inventory(source_context)
+
+
+    def reinventory(self):
+        for source_context in self.random_source_list:
+            response = self.send(source_context, "inventory")
+            scanner = self.scanners[source_context]
+            if response:
+                self.logger.debug(f"re-inventory got {len(response)} files from {source_context}")
+                self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
+                counted = {}
+                # claim (or disclaim) the server's list
+                for filename in response:
+                    self.logger.debug(f"filename: {filename} type={type(filename)}")
+                    if filename in scanner:
+                        self.claim(source_context, filename, dropping=True)
+                        counted[filename] = 1
+                    else:
+                        self.logger.debug(f"unclaiming {filename}")
+                        self.unclaim(source_context, filename)
+                # claim any I have but not in his list
+                for filename in list(scanner.keys()):
+                    if filename not in counted:
+                        self.claim(source_context, filename, dropping=True)
 
 
     # TODO: include a dirname + trailing slash on server
@@ -547,8 +570,9 @@ class Clientlet(Thread):
         timer = elapsed.ElapsedTimer()
         for source_context in self.scanners:
             self.scanners[source_context].scan()
-        self.inventory()    # asks the server
-        self.inform()       # tells the server
+        # self.inventory()    # asks the server
+        # self.inform()       # tells the server
+        self.reinventory()
         while not self.bailing:
             self.config.load()
             # re-check this, in case config reloaded
@@ -562,8 +586,9 @@ class Clientlet(Thread):
                     for source_context in self.scanners:
                         self.scanners[source_context].scan()
                     self.heartbeep()
-                    self.inform()
-                    self.inventory()
+                    self.reinventory()
+                    # self.inform()
+                    # self.inventory()
             self.audit()
             self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
