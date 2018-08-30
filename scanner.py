@@ -184,13 +184,13 @@ class Scanner(PersistentDict):
         if self.contains_p(filename):
             pathname = f"{self.path}/{filename}"
             self.logger.debug(f"dropping {filename}; before={self.consumption()}")
-            assert os.path.exists(pathname)
-            self.delete(filename)
-            os.remove(pathname)
-            self.scan()
-            self.write()
-            self.logger.debug(f"dropped {filename}; after={self.consumption()}")
-            self.audit()
+            if os.path.exists(pathname):
+                self.delete(filename)
+                os.remove(pathname)
+                self.scan()
+                self.write()
+                self.logger.debug(f"dropped {filename}; after={self.consumption()}")
+                self.audit()
         else:
             self.logger.warn(f"I don't have {filename}")
 
