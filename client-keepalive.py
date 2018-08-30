@@ -208,19 +208,18 @@ class Clientlet(Thread):
         for source_context in self.random_source_list:
             response = self.send(source_context, "inventory")
             scanner = self.scanners[source_context]
+            counted = {}
             if response:
                 self.logger.debug(f"re-inventory got {len(response)} files from {source_context}")
                 self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
-                counted = {}
                 # claim (or disclaim) the server's list
                 for filename in response:
-                    self.logger.debug(f"filename: {filename} type={type(filename)}")
                     if filename in scanner:
                         self.claim(source_context, filename, dropping=True)
                         counted[filename] = 1
                     else:
-                        self.logger.debug(f"unclaiming {filename}")
                         self.unclaim(source_context, filename)
+            if self.send(source_context, "heartbeep"):
                 # claim any I have but not in his list
                 for filename in list(scanner.keys()):
                     if filename not in counted:
@@ -290,7 +289,7 @@ class Clientlet(Thread):
 
     def drop(self, source_context, filename):
         self.logger.debug(f"dropping {source_context}:{filename}")
-        response = self.send(source_context, "unclaim", filename)[0] # TODO
+        response = self.send(source_context, "unclaim", filename)
         self.logger.debug(f"23235 response={response}, of type {type(response)}")
         if response:
             if self.scanners[source_context].contains_p(filename):
@@ -302,7 +301,7 @@ class Clientlet(Thread):
                 self.logger.warn(f"weird: I don't have {filename}")
                 return False
         else:
-            self.logger.warn(f"NACK?? not dropping {source_context}:{filename}")
+            self.logger.warn(f"no response, not dropping {source_context}:{filename}")
             return False
 
 
@@ -501,6 +500,7 @@ class Clientlet(Thread):
             self.logger.debug(f"response: >{response}<")
             if response:
                 for status in response:
+                    self.logger.debug(f"\tstatus: >{status}<")
                     if status in server_statuses:
                         server_statuses[status].append(source_context)
                     else:
@@ -570,8 +570,7 @@ class Clientlet(Thread):
         timer = elapsed.ElapsedTimer()
         for source_context in self.scanners:
             self.scanners[source_context].scan()
-        # self.inventory()    # asks the server
-        # self.inform()       # tells the server
+            self.logger.debug(f"scan complete, {len(self.scanners[source_context].keys())} files")
         self.reinventory()
         while not self.bailing:
             self.config.load()
