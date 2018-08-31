@@ -306,7 +306,7 @@ class Clientlet(Thread):
 
 
     # returns a tuple -- (filename, size) (or a 2-element list)
-    def request(self, source_context):
+    def DEADrequest(self, source_context):
         response = self.send(source_context, "request", str(self.free()))
         self.logger.debug(f"request gets {response}")
         if response:
@@ -377,7 +377,7 @@ class Clientlet(Thread):
         i = 0
         size = int(data[6:16])
         buf = data[16:]
-        sock.settimeout(5)
+        sock.settimeout(30)
         while i < size:
             try:
                 data = sock.recv(10240)
