@@ -6,17 +6,16 @@
 s = DatagramServer("localhost", 5000)
 
 while True:
-    datagram = s.accept()
-    datagram.send(datagram.value().upper())
-    datagram.close()
+    with s.accept() as datagram
+        datagram.send(datagram.value().upper())
 
 
 
 # Client
 
-datagram = Datagram("Hello, World!", server="localhost", port=5000)
-if datagram.send(): # or send(server="localhost", port=5000)
-    print(datagram.receive())
+with Datagram("Hello, World!", server="localhost", port=5000) as datagram:
+    if datagram.send(): # or send(server="localhost", port=5000)
+        print(datagram.receive())
 
 ################
 
