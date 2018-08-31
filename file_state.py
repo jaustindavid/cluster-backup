@@ -153,6 +153,32 @@ def looks_remote(string):
     return re.match(r'^[^/]+:', string)
 
 
+"""
+2018-08-30 17:20:49,964 [Clientlet 16bef420] retrieving 64b241a6:animated/Pixar
+Short Films Collection \u2013 Volume 1.m4v
+2018-08-30 17:20:49,964 [Clientlet 16bef420] retrieving 64b241a6:animated/Pixar
+Short Films Collection \u2013 Volume 1.m4v to /mnt/data/austin/cluster-backups/6
+4b241a6/animated/Pixar Short Films Collection \u2013 Volume 1.m4v
+2018-08-30 17:20:49,965 [Clientlet 16bef420] rsync mini:/Volumes/Media_ZFS/Movie
+s/animated/Pixar Short Films Collection \u2013 Volume 1.m4v /mnt/data/austin/clu
+ster-backups/64b241a6/animated/Pixar Short Films Collection \u2013 Volume 1.m4v
+2018-08-30 17:20:49,968 [rsync] ['rsync', '-a', '--inplace', '--partial', '--tim
+eout', '180', 'mini:/Volumes/Media_ZFS/Movies/animated/Pixar\\ Short\\ Films\\ C
+ollection\\ \u2013\\ Volume\\ 1.m4v', '/mnt/data/austin/cluster-backups/64b241a6
+/animated/Pixar Short Films Collection \u2013 Volume 1.m4v', '-v', '--progress']
+Exception in thread Thread-1:
+Traceback (most recent call last):
+  File "/home/austin/src/cluster-backup/file_state.py", line 198, in rsync
+    process = Popen(command, stdout=PIPE, stderr=STDOUT)
+  File "/usr/lib/python3.6/subprocess.py", line 709, in __init__
+    restore_signals, start_new_session)
+  File "/usr/lib/python3.6/subprocess.py", line 1275, in _execute_child
+    restore_signals, start_new_session, preexec_fn)
+UnicodeEncodeError: 'ascii' codec can't encode character '\u2013' in position 73
+: ordinal not in range(128)
+"""
+
+
 # returns a Unix exit code: 0 == good, !0 == bad
 # TODO: move options into kwargs
 def rsync(source, dest, options = [], **kwargs):
@@ -166,7 +192,7 @@ def rsync(source, dest, options = [], **kwargs):
          source = escape_special_chars(source)
     if looks_remote(dest):
         dest = escape_special_chars(dest)
-    print(source, dest)
+    # print(source, dest)
     RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))
     RSYNC_BWLIMIT = str(cfg.get("global", "RSYNC BWLIMIT", 0))
     command = [ RSYNC, "-a", "--inplace", "--partial", \
@@ -185,7 +211,6 @@ def rsync(source, dest, options = [], **kwargs):
         logger.info("> " + " ".join(command))
         return 0
     else:
-        # subprocess.call(command)
         # https://stackoverflow.com/questions/21953835/run-subprocess-and-print-output-to-logging#comment33261012_21953835
         from subprocess import Popen, PIPE, STDOUT
 
@@ -194,8 +219,10 @@ def rsync(source, dest, options = [], **kwargs):
         else:
             loghole = logger.info
 
+        command = [ s.encode() for s in command ]
+
+        process = Popen(command, stdout=PIPE, stderr=STDOUT)
         try:
-            process = Popen(command, stdout=PIPE, stderr=STDOUT)
             with process.stdout:
                 for line in iter(process.stdout.readline, b''):
                     # b'\n'-separated lines
