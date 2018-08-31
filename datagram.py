@@ -7,24 +7,25 @@ s = DatagramServer("localhost", 5000)
 
 while True:
     datagram = s.accept()
-    # _thread.start_new_thread(handler, (datagram))
-    datagram.respond(datagram.value().upper())
+    datagram.send(datagram.value().upper())
+    datagram.close()
+
 
 
 # Client
 
 datagram = Datagram("Hello, World!", server="localhost", port=5000)
 if datagram.send(): # or send(server="localhost", port=5000)
-    print(datagram.response())
+    print(datagram.receive())
 
 ################
 
 A Datagram is an arbitrarily-large object which can be sent
 to a DatagramServer, and a response Datagram will be returned.
 
-Network communication is *always* reciprocated: send() does a (single)
-receive, and vice-versa: the server always acks messages (or otherwise
-replies)
+Network communication appears atomic; the entire datagram is send()'t
+or receive()'d in one blocking call.  If possible the socket is held
+open for subsequent calls.
 
 It can act like an indexable list or dict, or like a scalar.
 len() acts like a list, so len(Datagram("contents is a string")) == 1
@@ -32,7 +33,6 @@ to avoid list confusion.
 
 A Datagram has a bool() value, which can be explicitly set or
 implicitly based on its contents.
-
 """
 
 
@@ -40,14 +40,14 @@ import logging, json, zlib, socket
 
 class Datagram:
     def __init__(self, *contents, **kwargs):
-        self.truthiness = None
-        self.contents = None
+        self.data = {}
+        self.data['truthiness'] = None
         self.connection = None
-        self.logger = logging.getLogger(str(__class__))
+        self.logger = logging.getLogger(str(__class__)[8:-2])
 
         if "connection" in kwargs:
             # slurp the universe from the connection
-            # ignore basically all other arguments
+            # ignore all other arguments
             self.connection = kwargs['connection']
             self.logger.debug("New from socket")
             self.receive()
@@ -60,21 +60,21 @@ class Datagram:
 
 
         if "bool" in kwargs:
-            self.truthiness = kwargs["bool"]
+            self.data['truthiness'] = kwargs["bool"]
 
         self.set(*contents)
 
 
     def value(self):
-        self.logger.debug(f"I have {self.contents}")
-        return self.contents
+        self.logger.debug(f"I have {self.data['contents']}")
+        return self.data['contents']
 
 
     def __getitem__(self, key):
-        if type(self.contents) is str and key == 0:
-            value = self.contents
+        if type(self.data['contents']) is str and key == 0:
+            value = self.data['contents']
         else:
-            value = self.contents[key]
+            value = self.data['contents'][key]
         # print(f"{key}: {value}")
         if type(value) is str and value.isdigit():
             return int(value)
@@ -82,49 +82,51 @@ class Datagram:
 
 
     def __bool__(self):
-        if self.truthiness is not None:
-            return self.truthiness
-        if type(self.contents) is str:
-            return bool(self.contents and self.contents != "")
-        return bool(self.contents)
+        if self.data['truthiness'] is not None:
+            return self.data['truthiness']
+        if type(self.data['contents']) is str:
+            return bool(self.data['contents'] and self.data['contents'] != "")
+        return bool(self.data['contents'])
         
 
     def __len__(self):
-        if type(self.contents) is str:
+        if type(self.data['contents']) is str:
             return 1
-        return len(self.contents)
+        return len(self.data['contents'])
 
 
     def __eq__(self, item):
         if type(item) is __class__:
             return str(self) == str(item)
-        return self.contents == item
+        return self.data['contents'] == item
 
 
     def __iter__(self):
-        if type(self.contents) is str:
-            return iter([ str(self.contents) ])
+        if type(self.data['contents']) is str:
+            return iter([ str(self.data['contents']) ])
         else:
-            return iter(self.contents)
+            return iter(self.data['contents'])
 
 
     def serialize(self):
-        return json.dumps(self.contents)
+        return zlib.compress(bytes(json.dumps(self.data), 'ascii'))
 
 
     def deserialize(self, data):
-        self.contents = json.loads(data)
+        self.data = json.loads(zlib.decompress(data))
 
 
-    def set(self, *contents):
+    def set(self, *contents, **kwargs):
+        if "bool" in kwargs:
+            self.data['truthiness'] = kwargs['bool']
         if contents:
             self.logger.debug(f"new contents: {contents}")
             if len(contents) == 1:
                 # print(f"Unpacking {contents}")
-                self.contents = contents[0]
+                self.data['contents'] = contents[0]
             else:
                 # print(f"NOT unpacking {contents}")
-                self.contents = contents
+                self.data['contents'] = contents
     
 
     def _get_connection(self, **kwargs):
@@ -153,6 +155,7 @@ class Datagram:
         return self.connection
 
 
+
     # initiates a NEW connection (or re-uses an existing one)
     # then sends my serialized contents
     #   if datagram.send(): # or send(server="localhost", port=5000)
@@ -167,7 +170,8 @@ class Datagram:
         sock = self._get_connection(**kwargs)
         if sock:
             try:
-                sock.sendall(bytes(data, 'ascii'))
+                # sock.sendall(bytes(data, 'ascii'))
+                sock.sendall(data)
             except socket.timeout:
                 self.logger.exception("timed out in send()")
                 self.close()
@@ -185,15 +189,20 @@ class Datagram:
 
     # slurps a lot of data down a connection, deserializes it
     # and returns it for good measure
-    def receive(self):
-        self.logger.debug("Receiving")
+    def receive(self, **kwargs):
         BUFFER_SIZE = 1024
-        sock = self.connection
-        data = str(sock.recv(BUFFER_SIZE), 'ascii')
+        self.logger.debug("Receiving")
+        sock = self._get_connection(**kwargs)
+        # data = str(sock.recv(BUFFER_SIZE), 'ascii')
+        if not sock:
+            return None
+
+        data = sock.recv(BUFFER_SIZE)
         sock.setblocking(False)
         while True:
             try:
-                buffer = str(sock.recv(BUFFER_SIZE), 'ascii')
+                # buffer = str(sock.recv(BUFFER_SIZE), 'ascii')
+                buffer = sock.recv(BUFFER_SIZE)
                 self.logger.debug(f"got {buffer}")
             except BlockingIOError:
                 buffer = None
@@ -204,7 +213,7 @@ class Datagram:
         self.logger.debug(f"data is {data}")
         self.deserialize(data)
 
-        return self.contents
+        return self.data['contents']
 
 
     def close(self):

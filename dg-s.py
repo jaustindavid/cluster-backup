@@ -14,7 +14,6 @@ logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s',
 s = DatagramServer("localhost", 5000)
 
 while True:
-    # with s.accept() as datagram:
     datagram = s.accept()
     # _thread.start_new_thread(handler, (datagram))
     message = datagram.value().upper()
