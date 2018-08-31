@@ -9,10 +9,9 @@ class TestMethods(unittest.TestCase):
         try:
             s = DatagramServer("localhost", 1492)
             while True:
-                datagram = s.accept()
-                datagram.set(bool=not datagram)
-                datagram.send()
-                datagram.close()
+                with s.accept() as datagram:
+                    datagram.set(bool=not datagram)
+                    datagram.send()
         except OSError:
             pass
 
@@ -68,11 +67,12 @@ class TestMethods(unittest.TestCase):
         self.assertTrue(datagram)
 
 
-    def test_1huge_echo(self):
+    def test_huge_echo(self):
         data = "an arbitrary string"
         buffer = []
-        for i in range(0, 100000):
+        for i in range(0, 1000000):
             buffer.append(f"{i}{data}{i}")
+        logging.getLogger().setLevel(logging.INFO)
         datagram = Datagram(buffer, server="localhost", port=1492)
         self.assertTrue(datagram.send())
         echo = datagram.receive()

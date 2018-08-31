@@ -65,6 +65,15 @@ class Datagram:
         self.set(*contents)
 
 
+    # with s.accept() as datagram:
+    def __enter__(self):
+        return self
+
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
     def value(self):
         self.logger.debug(f"I have {self.data['contents']}")
         return self.data['contents']
@@ -154,6 +163,11 @@ class Datagram:
                 return None
         return self.connection
 
+
+
+    # alias for "send"
+    def respond(self, *contents, **kwargs):
+        return self.send(*contents, **kwargs)
 
 
     # initiates a NEW connection (or re-uses an existing one)
