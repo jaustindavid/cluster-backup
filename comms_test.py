@@ -122,6 +122,14 @@ class TestMethods(unittest.TestCase):
 
 
     def test_for(self):
+        data = [ "one item" ]
+        c = comms.Communique(data)
+        print(f"one element: {str(c)}")
+        i = 0
+        for element in c:
+            self.assertTrue(type(element) is str)
+            self.assertEquals(element, data[i])
+            i += 1
         data = [ "ayeeeee", "beeeee", "seeeeee", "duheeeeeee" ]
         c = comms.Communique(data)
         print(f"len(c) = {len(c)}")
