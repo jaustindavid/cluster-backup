@@ -27,10 +27,8 @@ state(s), and I'll confirm it, when I start up.
 TODO: 
 * return the rsync commands needed to rebuild a given source
 * test restoration / recovery
-* coverage > 100%
-* collapse the audit: files with common client lists should be 1 line
-* arbitrarily long inventory() chain
 * encourage clients to balance among themselves
+* return multiple files (dict) with request() (requires client change)
 """
 
 
@@ -264,14 +262,16 @@ class Servlet(Thread):
     # return least-served file smaller than sizehint
     def least_served(self, candidates, sizehint):
         if self.scanner[candidates[0]]["size"] > sizehint:
-            # they're all too big; pick one
+            # they're all too big; pick one (TODO: some)
             return random.choice(candidates)
         
         for filename in sorted(candidates, reverse=True, \
                         key = lambda f: self.scanner[f]["size"]):
             if self.scanner[filename]["size"] < int(sizehint):
+                # TODO: return many
                 return filename
         # fallthrough: returns the last checked file
+        # TODO: return list()
         return filename
 
 
@@ -297,6 +297,7 @@ class Servlet(Thread):
                         if len(self.files[filename]) < target ]
         self.logger.debug(f"targeted list for {client}:")
         self.dump_files(candidates)
+        # TODO: return multiple files
         filename = self.least_served(candidates, int(sizehint))
         self.logger.debug(f"least_served gives {filename}")
         if filename:
@@ -393,7 +394,7 @@ class Servlet(Thread):
     def handle(self, action, args):
         if not self.handling:
             return "n/a"
-        self.logger.debug(f"requested: {action} ({args})")
+        # self.logger.debug(f"requested: {action} ({args})")
         actions = {"request":       self.request,
                     "claim":        self.claim,
                     "unclaim":      self.unclaim,
@@ -405,7 +406,7 @@ class Servlet(Thread):
                     "heartbeep":    self.heartbeep
                    }
         response = actions[action](args)
-        self.logger.debug(f"responding: {action} {args} -> {response}")
+        # self.logger.debug(f"responding: {action} {args} -> {response}")
         return str(response) # TODO: return Communique
 
 
@@ -457,7 +458,7 @@ class Server:
         args = request[2:]
         if server_context not in self.servlets:
             return "__none__"
-        self.logger.debug(f"acting: {server_context} => {action}({args})")
+        # self.logger.debug(f"acting: {server_context} => {action}({args})")
         response = self.servlets[server_context].handle(action, args)
 
         if not response:
@@ -475,19 +476,23 @@ class Server:
             conn.send(bytes(f"size: {size:10d}", 'ascii'))
             conn.sendall(bytes(data, 'ascii'))
         else:
-            self.logger.debug(f"returning {data}")
+            # self.logger.debug(f"returning {data}")
             conn.sendall(bytes(data, 'ascii'))
         
 
     def handler(self, conn, addr):
         BUFFER_SIZE = 1024 # datagrams (inbound) are very small
+        conn.settimeout(300)
         while True:
             data = str(conn.recv(BUFFER_SIZE), 'ascii')
             if not data:
                 break
             self.logger.debug(f"received {data}")
             response = str(self.handle(data))
+            self.logger.debug(f"returning {response}")
             self.sendall(conn, response)
+            
+        self.logger.debug(f"closing connection")
         conn.close()
 
 
