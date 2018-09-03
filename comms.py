@@ -42,7 +42,6 @@ class Communique:
             self.contents = contents
 
 
-    # this is terrible, DEAD 
     ''' append 0 or more args to my contents '''
     def append(self, *args):
         # print(f"len({args}) = {len(args)}")
