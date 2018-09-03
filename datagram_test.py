@@ -10,7 +10,6 @@ class TestMethods(unittest.TestCase):
             s = DatagramServer("localhost", 1492)
             while True:
                 with s.accept() as datagram:
-                    datagram.set(bool=not datagram)
                     datagram.send()
         except OSError:
             pass
@@ -27,20 +26,19 @@ class TestMethods(unittest.TestCase):
 
     def test_construction(self):
         dg = Datagram("This is one string")
-        self.assertTrue(dg)
+        self.assertFalse(dg)
 
-        dg = Datagram("This is one string", bool=False)
+        dg = Datagram("This is one string")
         self.assertFalse(dg)
 
         dg = Datagram("test", "string with spaces")
-        self.assertTrue(dg)
+        self.assertFalse(dg)
         self.assertEquals(dg[0], "test")
         self.assertEquals(dg[1], "string with spaces")
 
 
     def test_indexing(self):
         dg = Datagram("test", "string with spaces")
-        self.assertTrue(dg)
         self.assertEquals(dg[0], "test")
         self.assertEquals(dg[1], "string with spaces")
 
@@ -56,15 +54,8 @@ class TestMethods(unittest.TestCase):
         datagram = Datagram(data, server="localhost", port=1492)
         self.assertTrue(datagram.send())
         echo = datagram.receive()
-        self.assertEquals(data, echo)
-        self.assertFalse(datagram)
-
-        datagram = Datagram(data, bool=False, server="localhost", port=1492)
-        self.assertTrue(datagram.send())
-        echo = datagram.receive()
-        self.assertEquals(data, echo)
-        print(f"{datagram.data}")
         self.assertTrue(datagram)
+        self.assertEquals(data, echo)
 
 
     def test_huge_echo(self):
@@ -79,6 +70,29 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(buffer, echo)
         self.assertEquals(echo[999], "999an arbitrary string999")
         print(f"JFYI, buffer was {sys.getsizeof(buffer)} bytes!")
+
+
+    def test_set(self):
+        datagram = Datagram(None)
+        datagram.set("one")
+        self.assertEquals(datagram, "one")
+        
+        datagram.set("one", "two")
+        self.assertEquals(datagram.value(), ("one", "two"))
+
+
+    def test_connected(self):
+        datagram = Datagram(None)
+        self.assertFalse(datagram.connected())
+        self.assertFalse(datagram.ping())
+        datagram = Datagram("Stuff", server="localhost", port=1492)
+        self.assertFalse(datagram.connected())
+        self.assertTrue(datagram.ping())
+        self.assertTrue(datagram.ping())
+        datagram = Datagram("Stuff", server="localhost", port=1493)
+        self.assertFalse(datagram.connected())
+        self.assertFalse(datagram.ping())
+        
 
 
 if __name__ == "__main__":

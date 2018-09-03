@@ -10,7 +10,6 @@ while True:
         datagram.send(datagram.value().upper())
 
 
-
 # Client
 
 with Datagram("Hello, World!", server="localhost", port=5000) as datagram:
@@ -30,8 +29,9 @@ It can act like an indexable list or dict, or like a scalar.
 len() acts like a list, so len(Datagram("contents is a string")) == 1
 to avoid list confusion.  
 
-A Datagram has a bool() value, which can be explicitly set or
-implicitly based on its contents.
+A Datagram has a bool() value, which reflects whether it has a 
+valid network socket.  Use .ping() to refresh this without affecting
+contents
 """
 
 
@@ -40,9 +40,9 @@ import logging, json, zlib, socket
 class Datagram:
     def __init__(self, *contents, **kwargs):
         self.data = {}
-        self.data['truthiness'] = None
         self.connection = None
         self.logger = logging.getLogger(str(__class__)[8:-2])
+        self.logger.setLevel(logging.INFO)
 
         if "connection" in kwargs:
             # slurp the universe from the connection
@@ -56,10 +56,8 @@ class Datagram:
             assert "port" in kwargs, "Required: server, port"
             self.server = kwargs['server']
             self.port = kwargs['port']
-
-
-        if "bool" in kwargs:
-            self.data['truthiness'] = kwargs["bool"]
+        else:
+            self.server = self.port = None
 
         self.set(*contents)
 
@@ -74,68 +72,100 @@ class Datagram:
 
 
     def value(self):
-        self.logger.debug(f"I have {self.data['contents']}")
-        return self.data['contents']
+        self.logger.debug(f"I have {self.data}")
+        return self.data
+
+
+    # am I connected?
+    def connected(self):
+        return self.connection is not None
+
+    
+    # ping the other side & return T/F
+    def ping(self):
+        if not self._send(b"PING") or self._receive() != b"PONG":
+            self.close()
+        return self.connected()
 
 
     def __getitem__(self, key):
-        if type(self.data['contents']) is str and key == 0:
-            value = self.data['contents']
+        if type(self.data) is str and key == 0:
+            value = self.data
         else:
-            value = self.data['contents'][key]
-        # print(f"{key}: {value}")
+            value = self.data[key]
         if type(value) is str and value.isdigit():
             return int(value)
         return value
 
 
     def __bool__(self):
+        return self.connected()
+        # TODO: clean up
         if self.data['truthiness'] is not None:
             return self.data['truthiness']
-        if type(self.data['contents']) is str:
-            return bool(self.data['contents'] and self.data['contents'] != "")
-        return bool(self.data['contents'])
+        if type(self.data) is str:
+            return bool(self.data and self.data != "")
+        return bool(self.data)
         
 
     def __len__(self):
-        if type(self.data['contents']) is str:
+        if not self.data:
+            return 0
+        if type(self.data) is str:
             return 1
-        return len(self.data['contents'])
+        return len(self.data)
 
 
     def __eq__(self, item):
         if type(item) is __class__:
             return str(self) == str(item)
-        return self.data['contents'] == item
+        return self.data == item
 
 
     def __iter__(self):
-        if type(self.data['contents']) is str:
-            return iter([ str(self.data['contents']) ])
+        if not self.data:
+            return iter([])
+        if type(self.data) is str:
+            return iter([ str(self.data) ])
         else:
-            return iter(self.data['contents'])
+            return iter(self.data)
+
+    
+    def __str__(self):
+        dg = "Datagram"
+        if self.server:
+            dg += f"({self.server}:{self.port})"
+        ds = str(self.data)
+        if len(ds) > 20:
+            ds = ds[:20] + "..."
+        return f"{dg}[{ds}]"
 
 
     def serialize(self):
         return zlib.compress(bytes(json.dumps(self.data), 'ascii'))
 
 
+
     def deserialize(self, data):
-        self.data = json.loads(zlib.decompress(data))
+        if not data:
+            return
+        try:
+            self.data = json.loads(zlib.decompress(data))
+        except (zlib.error, json.decoder.JSONDecodeError):
+            self.logger.exception("Can't deserialize... (handling)")
+            self.data = None
 
 
     def set(self, *contents, **kwargs):
-        if "bool" in kwargs:
-            self.data['truthiness'] = kwargs['bool']
+        # if "bool" in kwargs:
+        #     self.data['truthiness'] = kwargs['bool']
         if contents:
             self.logger.debug(f"new contents: {contents}")
             if len(contents) == 1:
-                # print(f"Unpacking {contents}")
-                self.data['contents'] = contents[0]
+                self.data = contents[0]
             else:
-                # print(f"NOT unpacking {contents}")
-                self.data['contents'] = contents
-    
+                self.data = contents
+
 
     def _get_connection(self, **kwargs):
         if not self.connection:
@@ -146,22 +176,22 @@ class Datagram:
                 server = self.server
                 port = self.port
 
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.connection = sock
-            try:
-                sock.connect((server, port))
-                # sock.setblocking(False)
-                # sock.settimeout(300)
-            except BrokenPipeError:
-                self.logger.exception(f"got that broken pipe")
-                self.close()
-                return None
-            except ConnectionRefusedError:
-                self.logger.exception(f"Connection refused...")
-                self.close()
-                return None
+            if self.server is not None and self.port is not None:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.connection = sock
+                try:
+                    sock.connect((server, port))
+                    # sock.setblocking(False)
+                    # sock.settimeout(300)
+                except BrokenPipeError:
+                    self.logger.exception(f"got that broken pipe")
+                    self.close()
+                    return None
+                except ConnectionRefusedError:
+                    self.logger.exception(f"Connection refused...")
+                    self.close()
+                    return None
         return self.connection
-
 
 
     # alias for "send"
@@ -180,6 +210,11 @@ class Datagram:
         data = self.serialize()
         self.logger.debug(f"Sending {data}")
 
+        return self._send(data)
+
+
+    # low(er)-level "send"; takes hunk of data, returns T/F
+    def _send(self, data, **kwargs):
         sock = self._get_connection(**kwargs)
         if sock:
             try:
@@ -198,11 +233,10 @@ class Datagram:
                 self.close()
                 return False
         return True
-            
 
-    # slurps a lot of data down a connection, deserializes it
-    # and returns it for good measure
-    def receive(self, **kwargs):
+
+    # low(er)-level "receive"; returns a hunk of data
+    def _receive(self, **kwargs):
         BUFFER_SIZE = 1024
         self.logger.debug("Receiving")
         sock = self._get_connection(**kwargs)
@@ -210,29 +244,46 @@ class Datagram:
         if not sock:
             return None
 
-        data = sock.recv(BUFFER_SIZE)
-        sock.setblocking(False)
-        while True:
-            try:
-                # buffer = str(sock.recv(BUFFER_SIZE), 'ascii')
-                buffer = sock.recv(BUFFER_SIZE)
-                self.logger.debug(f"got {buffer}")
-            except BlockingIOError:
-                buffer = None
-            if not buffer:
-                break
-            data = data + buffer
-        sock.setblocking(True)
+        try:
+            data = sock.recv(BUFFER_SIZE)
+            # intercepting PING, low-level reponse ;-)
+            if data == b"PING":
+                self.logger.debug("got a PING")
+                self._send(b"PONG")
+                return self._receive(**kwargs)
+            sock.setblocking(False)
+            while True:
+                try:
+                    buffer = sock.recv(BUFFER_SIZE)
+                except BlockingIOError:
+                    buffer = None
+                # self.logger.debug(f"got {buffer}")
+                if not buffer:
+                    break
+                data = data + buffer
+            sock.setblocking(True)
+        except ConnectionResetError:
+            self.logger.debug("Connection closed :(")
+            self.close()
+            return None
         self.logger.debug(f"data is {data}")
-        self.deserialize(data)
+        return data
 
-        return self.data['contents']
+
+    # slurps a lot of data down a connection, deserializes it
+    # and returns it for good measure
+    def receive(self, **kwargs):
+        data = self._receive(**kwargs)
+        self.deserialize(data)
+        return self.data
 
 
     def close(self):
         self.logger.debug("closing connection")
-        self.connection.close()
-        self.connetion = None
+        if self.connection:
+            self.connection.close()
+            self.connection = None
+
 
 
 """
@@ -243,6 +294,19 @@ while True:
     datagram = ds.accept()
     # _thread.start_new_thread(handler, (datagram))
     datagram.respond(datagram.value().upper())
+
+
+long-lived server thread:
+    while datagram:
+        request = datagram.value()
+        if request:
+            self.logger.debug(f"received {request}")
+            response = self.handle(request)
+            self.logger.debug(f"returning {response}")
+            datagram.respond(response)
+            datagram.receive()
+    self.logger.debug(f"closing connection")
+    datagram.close()
 """
 
 class DatagramServer:
