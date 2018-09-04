@@ -4,10 +4,7 @@
 from persistent_dict import PersistentDict
 
 pd = PersistentDict("dict.json")
-pd.startTransaction()
-pd.set()
-pd.set()
-pd.closeTransaction()
+pd["key"] = "value"
 
 If kwargs "cls" is provided, this will be a dict of the named class.
 The class should provide serialize(), deserialize(data), and set(value)
@@ -34,35 +31,19 @@ class PersistentDict:
             self.cls = kwargs['cls']
         else:
             self.cls = None
-        self.transactionName = None
-        self.dirty = False
+        self.lock = threading.Lock()
         self.read()
         self.clear_dirtybits()
         self.timer = elapsed.ElapsedTimer()
-        # TODO: "metadata" is really just a hidden prefix
-        if "metadata" in kwargs:
-            self.metadata_key = kwargs["metadata"]
-        else:
-            self.metadata_key = "__metadata__"
-
-
-    # destructor
-    def __del__(self):
-        return # causes problems with file IO in some cases, racey
-        if self.dirty:
-            self.logger.debug("one last write")
-            self.write()
 
 
     def read(self, verbose = False):
-        if self.transactionName is not None:
-            filename = f"{self.masterFilename}.{self.transactionName}"
-        else:
-            filename = self.masterFilename
+        filename = self.masterFilename
         self.logger.debug(f"reading from {filename}")
         if not os.path.exists(filename):
             self.logger.debug("whoopsie, no file")
             return None
+        self.lock.acquire()
         try:
         # https://stackoverflow.com/questions/39450065/python-3-read-write-compressed-json-objects-from-to-gzip-file
             with bz2.open(filename, "r") as statefile:
@@ -77,24 +58,16 @@ class PersistentDict:
                         f" saved in {filename}.busted")
             self.data = {}
         self.logger.debug(f"read {len(self.data.items())} items")
-        self.dirty = False
+        self.lock.release()
 
 
     def write(self, verbose = False):
-        lock = threading.RLock()
-        lock.acquire()
-        if self.transactionName is not None:
-            filename = f"{self.masterFilename}.{self.transactionName}"
-        else:
-            filename = self.masterFilename
-        # self.logger.debug(f"writing data: {filename}")
+        filename = self.masterFilename
         self.mkdir(filename)
         with bz2.open(f"{filename}.tmp", "w") as statefile:
             statefile.write(json.dumps(self.de_classify(), \
                         sort_keys=True, indent=4).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
-        self.dirty = False
-        lock.release()
 
 
     def classify(self, data):
@@ -126,16 +99,6 @@ class PersistentDict:
             os.makedirs(dir)
 
 
-    def startTransaction(self, transactionName = "tmp"):
-        self.transactionName = transactionName
-        self.write()
-
-
-    def closeTransaction(self, verbose = False):
-        filename = f"{self.masterFilename}.{self.transactionName}"
-        os.rename(filename, self.masterFilename)
-
-
     def touch(self, key):
         self.dirtybits[key] = 1
 
@@ -145,8 +108,7 @@ class PersistentDict:
 
 
     def __setitem__(self, key, value):
-        lock = threading.RLock()
-        lock.acquire()
+        self.lock.acquire()
         if self.cls:
             if key not in self.data:
                 self.data[key] = self.cls(*self.args, **self.kwargs)
@@ -154,9 +116,8 @@ class PersistentDict:
         else:
             self.data[key] = value
         self.touch(key)
-        self.dirty = True
         self.lazy_write()
-        lock.release()
+        self.lock.release()
 
 
     def __getitem__(self, key):
@@ -180,32 +141,26 @@ class PersistentDict:
 
 
     def keys(self):
-        lock = threading.RLock()
-        lock.acquire()
+        self.lock.acquire()
         keys = self.data.keys()
-        lock.release()
+        self.lock.release()
         return keys
 
 
-    def delete(self, key):
-        lock = threading.RLock()
-        lock.acquire()
+    def __delitem__(self, key):
+        self.lock.acquire()
         del self.data[key]
         self.lazy_write()
         if key in self.dirtybits:
             del self.dirtybits[key]
-        lock.release()
+        self.lock.release()
 
 
     def items(self):
-        lock = threading.RLock()
-        lock.acquire()
-        if self.metadata_key in self.data:
-            dupe = self.data.copy()
-            del dupe[self.metadata_key]
-            return dupe.items()
-        lock.release()
-        return self.data.items()
+        self.lock.acquire()
+        items = self.data.items()
+        self.lock.release()
+        return items
             
 
     def contains_p(self, key):
