@@ -34,7 +34,7 @@ def bytes_to_str(bytes, **kwargs):
 # suffices: t, g, m, k (trailing b is fine / ignored)
 def str_to_bytes(data):
     if not data: return 0
-    data = data.lower()
+    data = str(data).lower()
     i = 0
     while i < len(data) and (data[i].isdigit() or data[i] == "."): 
         i += 1
@@ -82,7 +82,7 @@ def str_to_duration(string):
     if not string: return 0
     nr = 0
     total = 0
-    string = string.lower()
+    string = str(string).lower()
     while string is not "":
         if string[0].isdigit():
             nr = nr*10 + int(string[0])
