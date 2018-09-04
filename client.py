@@ -2,8 +2,10 @@
 
 import sys, random, time, socket, logging, os
 from threading import Thread
-import config, scanner, file_state, utils, elapsed, comms
+import config, scanner, file_state, utils, elapsed
 from utils import logger_str
+from datagram import Datagram
+from persistent_dict import PersistentDict
 
 """
 The backup client: a Client which just kicks off one-per-local-fs
@@ -12,12 +14,12 @@ ease of finding in the logs)
 
 The Clientlet owns a local filesystem.  It runs a Scanner which
 actually watches files and checksums.  The Clientlet will request
-files of sources, trusting that they will volunteer needy files.
+files from sources, trusting that they will volunteer needy files.
 
-Clientlet manages to a configured "size", or possibly can "reserve"
-space for other use.  It will try to *always* leave "reserve" space
-available, so if you use the FS for other purposes, the Clientlet's
-consumption will grow/shrink actively.
+Clientlet manages to a configured "size" (static), or possibly can 
+"reserve" space dynamically for other use.  It will try to *always* 
+leave "reserve" space available, so if you use the FS for other
+purposes, the Clientlet's consumption will grow/shrink actively.
 
 
 BEHAVIOUR
@@ -35,32 +37,6 @@ TODO:
     "drain").  Maybe inform server (drain vs. unclaim) ?
     NB: just ~randomly dropping a file works, so a "drain" would work too
 
-2018-08-23 04:34:13,407 [Scanner 9a1db81e:736ef407] scanning path ., ignoring ['.cb.736ef407.json']
-2018-08-23 04:34:13,410 [Clientlet 9a1db81e] sending claim @@ 736ef407 @@ 9a1db81e @@ ./3-file3 @@ d21812cac840e5f7c1acadf3553169d44f1f40f230302d2afe74c61142917476
-2018-08-23 04:34:13,410 [Clientlet 9a1db81e] received 'NACK'
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] ret=NACK, of type <class 'comms.Communique'>
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] 2329 NACK is <class 'str'>
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] NACK is <class 'str'>
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] NACK NACK NACK
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] claim returned >NACK<
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] dropping 736ef407:./3-file3
-2018-08-23 04:34:13,411 [Clientlet 9a1db81e] sending unclaim @@ 736ef407 @@ 9a1db81e @@ ./3-file3
-2018-08-23 04:34:13,412 [Clientlet 9a1db81e] received 'ack'
-2018-08-23 04:34:13,412 [Clientlet 9a1db81e] ret=ack, of type <class 'comms.Communique'>
-2018-08-23 04:34:13,412 [Clientlet 9a1db81e] 23235 response=ack, of type <class 'str'>
-2018-08-23 04:34:13,412 [Scanner 9a1db81e:736ef407] dropping ./3-file3; before=2532835328
-2018-08-23 04:34:13,421 [Scanner 9a1db81e:736ef407] scanning path ., ignoring ['.cb.736ef407.json']
-2018-08-23 04:34:13,423 [Scanner 9a1db81e:736ef407] dropped ./3-file3; after=2400190464
-2018-08-23 04:34:13,424 [Clientlet 9a1db81e] successfully dropped ./3-file3
-Exception in thread Thread-1:
-Traceback (most recent call last):
-  File "/Library/Frameworks/Python.framework/Versions/3.6/lib/python3.6/threading.py", line 916, in _bootstrap_inner
-    self.run()
-  File "./client.py", line 528, in run
-    self.inform()
-  File "./client.py", line 140, in inform
-    for filename in self.scanners[source_context].keys():
-RuntimeError: dictionary changed size during iteration
 """
 
 
@@ -84,13 +60,16 @@ class Clientlet(Thread):
         # ALL source contexts (we care a lot)
         self.sources = {}
         self.scanners = {}
+        lazy_write = utils.str_to_duration(self.config.get(context, "LAZY WRITE", 5))
+        # TODO: my cache of claims should expire in rescan/2
+        self.claims = PersistentDict(f"/tmp/cb.c{context}.json.bz2", lazy_write=5)
         self.random_source_list = []
         self.build_sources()
         self.drops = 0  # count the number of times I drop a file
 
         self.update_allocation()
         self.bailing = False
-        self.sockets = {}
+        self.datagrams = {}
 
 
     def build_sources(self):
@@ -124,155 +103,36 @@ class Clientlet(Thread):
         return source_contexts
 
 
-    # I (think I) have this file; claim it
-    #   if my claim is invalid (checksum doesn't match), 
-    #   remove it
-    def claim(self, source_context, filename, **kwargs):
-        if 'dropping' in kwargs:
-            dropping = kwargs['dropping']
-        else:
-            dropping = False
-        if 'retry' in kwargs:
-            retry = kwargs['retry']
-        else:
-            retry = 0
-        self.logger.debug(f"claiming {source_context}:{filename}")
-        # scan should be cheap, so no per-file scan #TODO -- not true
-        # self.scanners[source_context].scan()
-        self.scanners[source_context].update(filename)
-        filestate = self.scanners[source_context].get(filename)
-        response = self.send(source_context, "claim", filename, \
-                            filestate["checksum"])
-        # self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
-        if response: 
-            if response in ("ack", "keep"):
-                # self.files.append(filename)   # implied by ownership
-                self.logger.debug(f"claimed {filename} successfully")
-            elif response in ("update", "invalid checksum"):
-                if retry:
-                    retry -= 1
-                    self.logger.debug(f"failed, but retrying {counter} times")
-                    self.retrieve(source_context, filename, retry=retry)
-                else:
-                    self.logger.debug(f"Giving up, can't seem to copy {filename}")
-                    self.drop(source_context, filename)
-            else:
-                self.logger.debug(f"I should drop {filename}")
-                if dropping:
-                    self.logger.debug(f"claim returned >{response}<")
-                    self.drop(source_context, filename)
-        else:
-            self.logger.debug("not dropping... (non-response)")
+    #    # ##### # #      # ##### #   #
+    #    #   #   # #      #   #    # #
+    #    #   #   # #      #   #     #
+    #    #   #   # #      #   #     #
+    #    #   #   # #      #   #     #
+     ####    #   # ###### #   #     #
+
+
+    # returns the min config'd internval under my or 
+    # any of my server's contexts
+    def get_interval(self, interval_name):
+        interval = utils.str_to_duration( \
+                        self.config.get(self.context, interval_name))
+        for source_context in self.random_source_list:
+            interval = min(interval,
+                    utils.str_to_duration( \
+                        self.config.get(source_context, interval_name)))
+        return interval
 
 
     def unclaim(self, source_context, filename):
         response = self.send(source_context, "unclaim", filename)
-        self.logger.debug(f"23235 response={response}, of type {type(response)}")
+        del self.claims[f"{source_context}:{filename}"]
+        # self.logger.debug(f"23235 response={response}, of type {type(response)}")
         return response
 
 
-    # inform (optionally a server, optionally of a filename)
-    # that I have it
-    def DEADinform(self, source_context=None, filename=None):
-        if source_context and filename: # DEAD
-            self.claim(source_context, filename, dropping=False)
-        elif source_context:            # DEAD
-            for filename in self.scanners[source_context]:
-                self.claim(source_context, filename, dropping=False)
-        else:                           # NOT DEAD YET
-            for source_context in self.random_source_list:
-                for filename in list(self.scanners[source_context].keys()):
-                    self.claim(source_context, filename, dropping=False)
-
-
-    # inverse of "inform": what files should I have?
-    # for this list of files, either claim or unclaim them
-    def DEADinventory(self, source_context=None):
-        if source_context:
-            response = self.send(source_context, "inventory")
-            if response:
-                self.logger.debug(f"got {response} type={type(response)}")
-                for filename in response: 
-                    self.logger.debug(f"filename: {filename} type={type(filename)}")
-                    if filename in self.scanners[source_context]:
-                        self.claim(source_context, filename, dropping=True)
-                    else:
-                        self.logger.debug(f"unclaiming {filename}")
-                        self.unclaim(source_context, filename)
-        else:
-            for source_context in self.random_source_list:
-                self.inventory(source_context)
-
-
-    def reinventory(self):
-        for source_context in self.random_source_list:
-            response = self.send(source_context, "inventory")
-            scanner = self.scanners[source_context]
-            counted = {}
-            if response:
-                self.logger.debug(f"re-inventory got {len(response)} files from {source_context}")
-                self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
-                # claim (or disclaim) the server's list
-                for filename in response:
-                    if filename in scanner:
-                        self.claim(source_context, filename, dropping=True)
-                        counted[filename] = 1
-                    else:
-                        self.unclaim(source_context, filename)
-            if self.send(source_context, "heartbeep"):
-                # claim any I have but not in his list
-                for filename in list(scanner.keys()):
-                    if filename not in counted:
-                        self.claim(source_context, filename, dropping=True)
-
-
-    # TODO: include a dirname + trailing slash on server
-    # and call it 0 bytes (so everyone will get it)
-    def makedirs(self, filename):
-        path = os.path.dirname(filename)
-        if not os.path.exists(path):
-            self.logger.debug(f"making {path}")
-            os.makedirs(path, exist_ok=True)
-
-
-
-    # actually copying a file takes time
-    # ... unless I already have it:
-    #       because (for any reason) the server forgot, but it's
-    #       in my backup folder (in which case, just send the checksum)
-    def retrieve(self, source_context, filename, counter=0):
-        self.logger.debug(f"retrieving {source_context}:{filename} to {self.path}/{source_context}/{filename}")
-        # 0: do I have it?
-        if self.scanners[source_context].contains_p(filename):
-            self.logger.debug(f"I already have {filename}")
-            # just send the one; inform() will handle the rest
-            self.claim(source_context, filename, dropping=True)
-            return
-
-        # 1: build the filenames (full path) for source + dest
-        source = self.config.get(source_context, "source") + "/" + filename
-        src_host = config.host_for(source)
-        hostname = config.host_for(self.config.get(self.context, "backup"))
-        if src_host == hostname: # a local copy, just use path
-            source = config.path_for(source)
-        dest_path = f"{self.path}/{source_context}"
-        dest = f"{dest_path}/{filename}"
-
-        # 2: make the transfer
-        self.logger.debug(f"rsync {source} {dest}")
-        self.makedirs(dest)
-        rsync_stat = file_state.rsync(source, dest)
-        self.logger.debug(f"rsync returned {rsync_stat}")
-
-        if rsync_stat == 0:
-            # 3: record it
-            self.claim(source_context, filename, dropping=True) # no retry
-        else:
-            self.logger.error("Failed to rsync???")
-            raise FileNotFoundError
-
 
     """
+    TODO: write 'drain'
     usage: 
         if self.full_p():
             TODO: select a file
@@ -287,15 +147,183 @@ class Clientlet(Thread):
         pass
 
 
+
+
+
+
+
+    # if needed, create a long-lived datagram
+    def get_datagram(self, source_context):
+        ADDRESS = self.sources[source_context]
+        PORT = int(self.config.get("global", "PORT", "5005"))
+        
+        if source_context not in self.datagrams:
+            self.logger.debug(f"building a datagram for {source_context}")
+            self.datagrams[source_context] = \
+                        Datagram("Bogus", server=ADDRESS, port=PORT)
+            self.datagrams[source_context].ping()
+        return self.datagrams[source_context]
+
+
+    # TODO: DEAD?
+    def del_datagram(self, source_context):
+        datagram = self.datagrams[source_context]
+        datagram.close()
+        del self.datagrams[source_context]
+
+
+
+    # send a command(args) to a source_context; 
+    # if possible, re-use an existing datagram
+    #
+    # this always returns a datagram; use .connected()
+    def send(self, source_context, command, *args):
+        datagram = self.get_datagram(source_context)
+
+        if not datagram:
+            self.logger.debug("whoa, no datagram")
+            # try once:
+            self.del_datagram(source_context)
+            datagram = self.get_datagram(source_context)
+            if not datagram:
+                self.logger.debug("still didn't work?")
+            return datagram
+
+        commandlist = [ command, source_context, self.context ]
+        for arg in args:
+            commandlist.append(arg)
+        datagram.set(commandlist)
+
+        if datagram.send():
+            datagram.receive()
+        return datagram
+
+
+
+     ####   ####  #####  #   #
+    #    # #    # #    #  # #
+    #      #    # #    #   #
+    #      #    # #####    #
+    #    # #    # #        #
+     ####   ####  #        #
+
+
+    def claim_valid(self, source_context, filename):
+        rescan = self.get_interval("rescan")//2
+        key = f"{source_context}:{filename}"
+        return key in self.claims and \
+            self.claims[key] + rescan > time.time()
+
+
+    # I (think I) have this file; claim it
+    #   if my claim is invalid (checksum doesn't match), 
+    #   remove it
+    def claim(self, source_context, filename, **kwargs):
+        self.logger.debug(f"claiming {source_context}:{filename}")
+        self.scanners[source_context].update(filename)
+        filestate = self.scanners[source_context][filename]
+        response = self.send(source_context, "claim", filename, \
+                            filestate["checksum"])
+        if response in ("ack", "keep"):
+            self.claims[f"{source_context}:{filename}"] = time.time()
+        # self.logger.debug(f"2329 {response} is {type(response)}, bool({bool(response)})")
+        return response
+
+
+    # TODO: include a dirname + trailing slash on server
+    # and call it 0 bytes (so everyone will get it)
+    def makedirs(self, filename):
+        path = os.path.dirname(filename)
+        if not os.path.exists(path):
+            self.logger.debug(f"making {path}")
+            os.makedirs(path, exist_ok=True)
+
+
+    # actually copying a file takes time
+    # ... unless I already have it:
+    #       because (for any reason) the server forgot, but it's
+    #       in my backup folder (in which case, just send the checksum)
+    def retrieve(self, source_context, filename):
+        self.logger.debug(f"retrieving {source_context}:{filename}" + \
+                            f" to {self.path}/{source_context}/{filename}")
+        # 0: do I have it?
+        if self.scanners[source_context].contains_p(filename):
+            claimed = self.claim(source_context, filename, dropping=True)
+            self.logger.debug(f"I already have {filename}; claimed = {claimed}")
+            if claimed in ("ack", "keep"):
+                return claimed
+            else:
+                self.logger.debug(f"Something's wrong, trying again")
+
+        # 1: build the filenames (full path) for source + dest
+        source = self.config.get(source_context, "source") + "/" + filename
+        src_host = config.host_for(source)
+        hostname = config.host_for(self.config.get(self.context, "backup"))
+        if src_host == hostname: # a local copy, just use path
+            source = config.path_for(source)
+        dest = f"{self.path}/{source_context}/{filename}"
+
+        # 2: make the transfer
+        self.logger.debug(f"rsync {source} {dest}")
+        self.makedirs(dest)
+        rsync_stat = file_state.rsync(source, dest)
+        self.logger.debug(f"rsync returned {rsync_stat}")
+
+        if rsync_stat == 0:
+            # 3: record it
+            self.claim(source_context, filename, dropping=True)
+        else:
+            self.logger.error("Failed to rsync???")
+            raise FileNotFoundError
+
+
+    # should return False if I wasn't able to copy because I'm out of space
+    def copy_from(self, source_context):
+        copied = False
+        response = self.send(source_context, "request", str(self.free()))
+        if response:
+            for filename, size in response.value().items():
+                if int(size) > self.free():
+                    # can't copy -- too big :(
+                    self.logger.debug(f"{filename} is too big; skipping")
+                    return False
+                else:
+                    self.logger.debug(f"retrieving {source_context}:{filename}")
+                    # TODO: insert retries here
+                    if self.retrieve(source_context, filename):
+                        copied = True
+        return True
+
+
+    # try to copy one file; prefer underserved (then available) hosts
+    # if I fail to copy any files because of size, return False
+    def try_to_copy(self):
+        if "underserved" in self.server_statuses:
+            source_context = random.choice(self.server_statuses['underserved'])
+        elif "available" in self.server_statuses:
+            source_context = random.choice(self.server_statuses['available'])
+        if (source_context):
+            return self.copy_from(source_context)
+        return True # fallthrough
+
+
+#####  #####   ####  #####
+#    # #    # #    # #    #
+#    # #    # #    # #    #
+#    # #####  #    # #####
+#    # #   #  #    # #
+#####  #    #  ####  #
+
+
     def drop(self, source_context, filename):
         self.logger.debug(f"dropping {source_context}:{filename}")
         response = self.send(source_context, "unclaim", filename)
-        self.logger.debug(f"23235 response={response}, of type {type(response)}")
+        self.logger.debug(f"response={response}")
         if response:
-            if self.scanners[source_context].contains_p(filename):
+            if filename in self.scanners[source_context]:
                 self.scanners[source_context].drop(filename)
                 self.logger.info(f"successfully dropped {filename}")
-                self.drops += 1
+                self.drops += 1  # TODO: stats pack
                 return True
             else:
                 self.logger.warn(f"weird: I don't have {filename}")
@@ -305,19 +333,106 @@ class Clientlet(Thread):
             return False
 
 
-    # returns a tuple -- (filename, size) (or a 2-element list)
-    def DEADrequest(self, source_context):
-        response = self.send(source_context, "request", str(self.free()))
-        self.logger.debug(f"request gets {response}")
-        if response:
-            self.logger.debug(f"873435 response: {type(response)}, {response.contents}")
-            return response[0], response[1]
-        return (None, 0)
+    # hunt for ONE overserved file to drop, then drop it
+    def try_to_drop(self):
+        self.logger.debug("trying to drop:")
+        self.logger.debug(f"statuses: {self.server_statuses}")
+        if 'overserved' in self.server_statuses:
+            source_context = random.choice(self.server_statuses['overserved'])
+            response = self.send(source_context, "overserved")
+            if response:
+                self.logger.debug(response)
+                filename = response[0]
+                self.logger.debug(f"overserved: {source_context}:{filename}")
+                return self.drop(source_context, filename)
+        else:
+            self.logger.debug("couldn't find any overserved hosts")
+        return False  # nothing dropped
+
+
+     ####  #####   ##   ##### #    #  ####
+    #        #    #  #    #   #    # #
+     ####    #   #    #   #   #    #  ####
+         #   #   ######   #   #    #      #
+    #    #   #   #    #   #   #    # #    #
+     ####    #   #    #   #    ####   ####
+
+
+    def check_on_servers(self):
+        server_statuses = {}
+        self.logger.debug("checking status")
+        for source_context in self.random_source_list:
+            response = self.send(source_context, "status")
+            # self.logger.debug(f"response: >{response}<")
+            if response:
+                for status in response:
+                    # self.logger.debug(f"\tstatus: >{status}<")
+                    if status in server_statuses:
+                        server_statuses[status].append(source_context)
+                    else:
+                        server_statuses[status] = [ source_context ]
+        return server_statuses
+
+
+    # aggressively re-inventory my contents:
+    # 1) get a (complete) list of what the server thinks I have,
+    #   reclaim (or unclaim) each
+    # 2) claim any files the server doesn't know about 
+    #   this is common for a server restart (client state gets reset)
+    # TODO: multi-claim
+    def reinventory(self):
+        for source_context in self.random_source_list:
+            if self.send(source_context, "heartbeep"):
+                rescan = self.get_interval("rescan")//2
+                response = self.send(source_context, "inventory")
+                scanner = self.scanners[source_context]
+                counted = {}
+                if response and response.value() is not None:
+                    self.logger.debug(f"re-inventory got {len(response)} files from {source_context}")
+                    self.logger.debug(f"{response}")
+                    self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
+                    # claim (or disclaim) the server's list
+                    for filename in response:
+                        if filename in scanner:
+                            counted[filename] = 1
+                            if not self.claim_valid(source_context, filename):
+                                claimed = self.claim(source_context, filename, dropping=True)
+                                # TODO: handle a failed claim
+                                if claimed not in ("ack", "keep"):
+                                    self.logger.debug(f"claim returns {claimed}")
+                                    if claimed.value() is None:
+                                        break # they're not listening RN
+                        else:
+                            self.unclaim(source_context, filename)
+                # claim any I have but not in his list
+                for filename in list(scanner.keys()):
+                    if filename not in counted:
+                        claimed = self.claim(source_context, filename, dropping=True)
+                        # TODO: handle a failed claim
+                        if claimed not in ("ack", "keep"):
+                            self.logger.debug(f"claim returns {claimed}")
+                            if claimed.value() is None:
+                                break # they're not listening RN
+
+
+    def heartbeep(self):
+        self.logger.debug(f"heartbeeping")
+        infoes = f"used {utils.bytes_to_str(self.consumption(), approximate=True)} of {utils.bytes_to_str(self.allocation)}"
+        for source_context in sorted(self.scanners):
+            self.send(source_context, "heartbeep", infoes)
+        self.logger.debug(infoes)
+
+
+    def audit(self):
+        self.logger.debug(f"auditing {self}: {self.drops} drops")
+        for source_context in sorted(self.scanners):
+            # nfiles = len(self.scanners[source_context].states.items())
+            nfiles = len(self.scanners[source_context].items())
+            self.logger.debug(f"{source_context}: {nfiles} files")
 
 
     # calculate my consumed storage (based on the sum of sizes
-    #   in each scanner) and compare to what I'm allowed to
-    #   consume; return allotment - consumption
+    #   in each scanner)
     def consumption(self):
         consumed = 0
         for source_context in self.scanners:
@@ -325,6 +440,7 @@ class Clientlet(Thread):
         return consumed
 
 
+    # update my allocation of storage: dynamic if I "reserve" space
     def update_allocation(self):
         reserve = utils.str_to_bytes(self.config.get(self.context,
                                                         "reserve", "0"))
@@ -338,6 +454,8 @@ class Clientlet(Thread):
             self.allocation = size
         assert self.allocation, "Can't start; define 'size' or 'reserve'"
 
+    
+    # number of bytes I could copy before going over
     def free(self):
         self.logger.debug(f"used {utils.bytes_to_str(self.consumption(), approximate=True)} of {utils.bytes_to_str(self.allocation)}")
         self.update_allocation()
@@ -348,164 +466,18 @@ class Clientlet(Thread):
         return self.free() <= 0
 
 
-
-    # if needed, create a long-lived socket
-    def get_socket(self, source_context):
-        ADDRESS = self.sources[source_context]
-        PORT = int(self.config.get("global", "PORT", "5005"))
-        
-        if source_context not in self.sockets:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                s.connect((ADDRESS, PORT))
-            except (ConnectionResetError, ConnectionRefusedError):
-                return None
-            self.sockets[source_context] = s
-        return self.sockets[source_context]
-
-
-    def del_socket(self, source_context):
-        sock = self.sockets[source_context]
-        sock.close()
-        del self.sockets[source_context]
-
-
-    # tries to recv() all bytes from sock, 
-    # when the first chunk is in data and has a
-    # size: <bytes> hint (fixed @ 16 bytes wide)
-    def recvall(self, sock, data):
-        i = 0
-        size = int(data[6:16])
-        buf = data[16:]
-        sock.settimeout(30)
-        while i < size:
-            try:
-                data = sock.recv(10240)
-            except socket.timeout:
-                self.logger.warn("Socket timeout!")
-                return None
-            i += len(data)
-            buf += str(data, 'ascii')
-        self.logger.debug(f"I recv()d {i} bytes")
-        return buf
+    def __str__(self):
+        hostname = config.host_for(self.config.get(self.context, "backup"))
+        return f"{hostname}: {utils.bytes_to_str(self.consumption())}/{utils.bytes_to_str(self.allocation)}"
 
 
 
-    # send a command(args) to a source_context; 
-    # if possible, re-use an existing socket
-    def send(self, source_context, command, *args):
-        BUFFER_SIZE = 1024 # 10*2**20 # 10MB
-        # create a socket
-        sock = self.get_socket(source_context)
-        if not sock:
-            return comms.Communique(None)
-
-        # message = f"{command} @@ {source_context} @@ {self.context}"
-        comm = comms.Communique(command, source_context, self.context)
-        comm.append(*args)
-        message = str(comm)
-
-        # self.logger.debug(f"sending '{message}'")
-        try:
-            sock.settimeout(30)  # 30s socket timeout
-            sock.sendall(bytes(message, 'ascii'))
-            data = str(sock.recv(BUFFER_SIZE), 'ascii')
-        except socket.timeout:
-            self.logger.exception("timed out in send()")
-            self.del_socket(source_context)
-            return comms.Communique(None)
-        except BrokenPipeError:
-            data = "__none__"
-            self.logger.exception(f"got that broken pipe")
-            self.del_socket(source_context)
-            return comms.Communique(None)
-
-        if data.startswith("size: "):
-            data = self.recvall(sock, data)
-
-        # self.logger.debug(f"received >{data}<")
-        if not data or data == "n/a" or data == "__none__":
-            data = None  # servlet not ready; treat like conn failure
-            ret = comms.Communique(None)
-        else:
-            ret = comms.Communique.build(data, negatives=("__none__", "None"))
-            # self.logger.debug(f"ret={ret}, of type {type(ret)}")
-        return ret
-
-
-    # TODO: clients are overfilling; why?
-    def copy_from(self, source_context):
-        response = self.send(source_context, "request", str(self.free()))
-        if response:
-            filename = response[0]
-            size = response[1]
-            if int(size) > self.free():
-                # can't copy -- too big :(
-                self.logger.debug(f"{filename} is too big; skipping")
-                return False
-            self.logger.debug(f"retrieving {source_context}:{filename}")
-            self.retrieve(source_context, filename)
-        return True
-
-
-    # try to copy one file; prefer underserved (then available) hosts
-    # if I fail to copy any files because of size, return False
-    def try_to_copy(self):
-        # answers = {}
-        # for source_context in self.random_source_list:
-        #     response = self.send(source_context, "status")
-        #     if response:
-        #         answers[source_context] = str(response)
-        # self.logger.debug(answers)
-        # if len(answers) == 0:
-        #     return True    # no answers != no space
-        # keys = list(answers.keys())
-        # random.shuffle(keys)
-        if "underserved" in self.server_statuses:
-            source_context = random.choice(self.server_statuses['underserved'])
-        # for source_context in keys:
-        #     if answers[source_context] == "underserved":
-            return self.copy_from(source_context)
-        if "available" in self.server_statuses:
-            source_context = random.choice(self.server_statuses['available'])
-        # for source_context in keys:
-        #     if answers[source_context] == "available":
-            return self.copy_from(source_context)
-        return True # fallthrough
-
-
-    # hunt for ONE overserved file to drop, then drop it
-    def try_to_drop(self):
-        self.logger.debug("trying to drop:")
-        self.logger.debug(f"statuses: {self.server_statuses}")
-        if 'overserved' in self.server_statuses:
-            source_context = random.choice(self.server_statuses['overserved'])
-        # for source_context in self.random_source_list:
-            response = self.send(source_context, 'overserved')
-            if response:
-                self.logger.debug(response)
-                filename = response[0]
-                self.logger.debug(f"overserved: {source_context}:{filename}")
-                return self.drop(source_context, filename)
-        else:
-            self.logger.debug("couldn't find overserved")
-        return False  # nothing dropped
-
-
-    def check_on_servers(self):
-        server_statuses = {}
-        self.logger.debug("checking status")
-        for source_context in self.random_source_list:
-            response = self.send(source_context, "status")
-            self.logger.debug(f"response: >{response}<")
-            if response:
-                for status in response:
-                    self.logger.debug(f"\tstatus: >{status}<")
-                    if status in server_statuses:
-                        server_statuses[status].append(source_context)
-                    else:
-                        server_statuses[status] = [ source_context ]
-        return server_statuses
+    #####  #    # #    # #    # # #    #  ####  
+    #    # #    # ##   # ##   # # ##   # #    # 
+    #    # #    # # #  # # #  # # # #  # #      
+    #####  #    # #  # # #  # # # #  # # #  ### 
+    #   #  #    # #   ## #   ## # #   ## #    # 
+    #    #  ####  #    # #    # # #    #  ####  
 
 
     """
@@ -537,32 +509,6 @@ class Clientlet(Thread):
             return self.try_to_copy()
             
 
-    def heartbeep(self):
-        self.logger.debug(f"heartbeeping")
-        infoes = f"used {utils.bytes_to_str(self.consumption(), approximate=True)} of {utils.bytes_to_str(self.allocation)}"
-        for source_context in sorted(self.scanners):
-            self.send(source_context, "heartbeep", infoes)
-        self.logger.debug(infoes)
-
-
-    def audit(self):
-        self.logger.debug(f"auditing {self}: {self.drops} drops")
-        for source_context in sorted(self.scanners):
-            # nfiles = len(self.scanners[source_context].states.items())
-            nfiles = len(self.scanners[source_context].items())
-            self.logger.debug(f"{source_context}: {nfiles} files")
-
-
-    # returns the min config'd internval under my or 
-    # any of my server's contexts
-    def get_interval(self, interval_name):
-        interval = utils.str_to_duration( \
-                        self.config.get(self.context, interval_name))
-        for source_context in self.random_source_list:
-            interval = min(interval,
-                    utils.str_to_duration( \
-                        self.config.get(source_context, interval_name)))
-        return interval
 
 
     def run(self):
@@ -586,23 +532,19 @@ class Clientlet(Thread):
                         self.scanners[source_context].scan()
                     self.heartbeep()
                     self.reinventory()
-                    # self.inform()
-                    # self.inventory()
             self.audit()
             self.logger.info(f"sleeping {utils.duration_to_str(sleep_time)}")
             time.sleep(sleep_time)
 
 
-    def __str__(self):
-        hostname = config.host_for(self.config.get(self.context, "backup"))
-        return f"{hostname}: {utils.bytes_to_str(self.consumption())}/{utils.bytes_to_str(self.allocation)}"
 
 
 # A Client represents this machine, and cares about ALL
 # backup relevant to this machine.  Per-source interaction is 
 # handled in the Clientlet[s]
 #
-# My job is to run a bunch of per-backup Clientlets
+# My job is to start a bunch of per-backup Clientlets, and
+# periodically inspire them to print a status
 class Client(Thread):
     def __init__(self, hostname):
         super().__init__()
@@ -630,10 +572,8 @@ class Client(Thread):
             self.logger.info("looping")
             for context, clientlet in self.clientlets.items():
                 clientlet.audit()
-            time.sleep(30)
-
+            time.sleep(60)
 
 
 if __name__ == "__main__":
-    import sys
-    sys.exit(1)
+    sys,exit(1)
