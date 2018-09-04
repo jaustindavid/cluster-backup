@@ -99,7 +99,7 @@ class Servlet(Thread):
         clientelle = {}
         coverage = 0
         nblocks = 0
-        files = list(self.clients.keys())
+        files = self.clients.keys()
         for filename in files:
             count = len(self.clients[filename])
             nblocks += count
@@ -227,9 +227,8 @@ class Servlet(Thread):
         client = args[0]
         self.logger.debug(f"{client} wants inventory")
         files = []
-        for filename in self.clients:
-            # if len(self.clients[filename]) > 0:
-                # self.logger.debug(f"filename: {filename}: {self.clients[filename]}")
+        client_files = self.clients.keys()
+        for filename in client_files:
             if client in self.clients[filename]:
                 # self.logger.debug(f"{client} has {filename}")
                 files.append(filename)
