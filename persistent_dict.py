@@ -52,7 +52,7 @@ class PersistentDict:
                 if self.data is None:
                     self.logger.debug("json.load() -> self.data is None")
                     self.data = {}
-        except json.decoder.JSONDecodeError:
+        except (json.decoder.JSONDecodeError, EOFError):
             os.rename(filename, f"{filename}.busted")
             self.logger.warn(f"whoopsie, JSONDecodeError;" \
                         f" saved in {filename}.busted")
