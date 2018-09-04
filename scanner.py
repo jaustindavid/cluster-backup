@@ -185,7 +185,7 @@ class Scanner(PersistentDict):
             pathname = f"{self.path}/{filename}"
             self.logger.debug(f"dropping {filename}; before={self.consumption()}")
             if os.path.exists(pathname):
-                self.delete(filename)
+                del self[filename]
                 os.remove(pathname)
                 self.scan()
                 self.write()
@@ -200,7 +200,7 @@ class Scanner(PersistentDict):
         # for fqde in self.states.clean_keys():
         for fqde in self.clean_keys():
             self.logger.debug(f"removed: {fqde}")
-            self.delete(fqde)
+            del self[fqde]
             changed = True
         # self.states.write()
         self.write()
@@ -210,13 +210,6 @@ class Scanner(PersistentDict):
     def contains_p(self, filename):
         # return self.states.contains_p(filename)
         return filename in self.data
-
-
-    # def get(self, filename):
-    # return self.states.get(filename)
-
-    # def keys(self):
-        # return self.states.keys()
 
 
     def consumption(self):
