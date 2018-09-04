@@ -4,7 +4,7 @@ import sys, random, time, socket, logging, os, _thread
 from threading import Thread
 # from multiprocessing import Process as Thread
 
-import config, elapsed, scanner, persistent_dict, utils, locker, lock
+import config, elapsed, scanner, persistent_dict, utils, locker, lock, stats
 from datagram import *
 
 """
@@ -420,6 +420,7 @@ class Server(Thread):
         self.contexts = self.get_contexts()
         self.servlets = {}
         self.build_servlets()
+        self.stats = stats.Stats()
         
 
     def get_contexts(self):
@@ -445,8 +446,10 @@ class Server(Thread):
         timer = elapsed.ElapsedTimer()
         while True:
             time.sleep(15)
+            self.logger.info(f"aggregate qps: {self.stats['handler'].qps()}")
             self.logger.info("Servlet status update: ")
             for context, servlet in self.servlets.items():
+                self.logger.info(f"{context} qps: {self.stats[context].qps()}")
                 servlet.audit()
 
 
@@ -458,6 +461,7 @@ class Server(Thread):
         if server_context not in self.servlets:
             return None
         # self.logger.debug(f"acting: {server_context} => {action}({args})")
+        self.stats[server_context].incr(1)
         response = self.servlets[server_context].handle(action, args)
 
         return response
@@ -465,6 +469,7 @@ class Server(Thread):
 
     def handler(self, datagram):
         while datagram:
+            self.stats['handler'].incr(1)
             request = datagram.value()
             if request:
                 self.logger.debug(f"received {request}")
