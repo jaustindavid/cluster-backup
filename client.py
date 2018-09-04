@@ -2,7 +2,7 @@
 
 import sys, random, time, socket, logging, os
 from threading import Thread
-import config, scanner, file_state, utils, elapsed
+import config, scanner, file_state, utils, elapsed, stats
 from utils import logger_str
 from datagram import Datagram
 from persistent_dict import PersistentDict
@@ -60,12 +60,16 @@ class Clientlet(Thread):
         # ALL source contexts (we care a lot)
         self.sources = {}
         self.scanners = {}
-        lazy_write = utils.str_to_duration(self.config.get(context, "LAZY WRITE", 5))
-        # TODO: my cache of claims should expire in rescan/2
-        self.claims = PersistentDict(f"/tmp/cb.c{context}.json.bz2", lazy_write=5)
         self.random_source_list = []
         self.build_sources()
+
+        lazy_write = utils.str_to_duration(self.config.get(context, "LAZY WRITE", 5))
+        # TODO: my cache of claims should expire in rescan/2
+        self.rescan = self.get_interval("rescan")//2
+        self.claims = PersistentDict(f"/tmp/cb.c{context}.json.bz2", 
+                                    lazy_write=5, expiry=self.rescan)
         self.drops = 0  # count the number of times I drop a file
+        self.stats = stats.Stats()
 
         self.update_allocation()
         self.bailing = False
@@ -125,7 +129,9 @@ class Clientlet(Thread):
 
     def unclaim(self, source_context, filename):
         response = self.send(source_context, "unclaim", filename)
-        del self.claims[f"{source_context}:{filename}"]
+        key = f"{source_context}:{filename}"
+        if key in self.claims:
+            del self.claims[key]
         # self.logger.debug(f"23235 response={response}, of type {type(response)}")
         return response
 
@@ -189,6 +195,7 @@ class Clientlet(Thread):
                 self.logger.debug("still didn't work?")
             return datagram
 
+        self.stats['requests'].incr(1)
         commandlist = [ command, source_context, self.context ]
         for arg in args:
             commandlist.append(arg)
@@ -208,7 +215,7 @@ class Clientlet(Thread):
      ####   ####  #        #
 
 
-    def claim_valid(self, source_context, filename):
+    def claim_is_valid(self, source_context, filename):
         rescan = self.get_interval("rescan")//2
         key = f"{source_context}:{filename}"
         return key in self.claims and \
@@ -219,6 +226,7 @@ class Clientlet(Thread):
     #   if my claim is invalid (checksum doesn't match), 
     #   remove it
     def claim(self, source_context, filename, **kwargs):
+        self.stats['claims'].incr(1)
         self.logger.debug(f"claiming {source_context}:{filename}")
         self.scanners[source_context].update(filename)
         filestate = self.scanners[source_context][filename]
@@ -279,19 +287,19 @@ class Clientlet(Thread):
 
     # should return False if I wasn't able to copy because I'm out of space
     def copy_from(self, source_context):
-        copied = False
         response = self.send(source_context, "request", str(self.free()))
         if response:
             for filename, size in response.value().items():
                 if int(size) > self.free():
                     # can't copy -- too big :(
                     self.logger.debug(f"{filename} is too big; skipping")
+                    self.last_copy = "not enough space"
                     return False
                 else:
                     self.logger.debug(f"retrieving {source_context}:{filename}")
                     # TODO: insert retries here
                     if self.retrieve(source_context, filename):
-                        copied = True
+                        self.last_copy = "success"
         return True
 
 
@@ -316,6 +324,7 @@ class Clientlet(Thread):
 
 
     def drop(self, source_context, filename):
+        self.stats['drops'].incr(1)
         self.logger.debug(f"dropping {source_context}:{filename}")
         response = self.send(source_context, "unclaim", filename)
         self.logger.debug(f"response={response}")
@@ -374,6 +383,42 @@ class Clientlet(Thread):
         return server_statuses
 
 
+    def claim_from_list(self, source_context, filenames):
+        for filename in filenames:
+            if filename in self.scanners[source_context]:
+                counted[filename] = 1
+                if not self.claim_is_valid(source_context, filename):
+                    claimed = self.claim(source_context, filename, dropping=True)
+                    # TODO: handle a failed claim
+                    if claimed not in ("ack", "keep"):
+                        self.logger.debug(f"claim returns {claimed}")
+                        if claimed.value() is None:
+                            break # they're not listening RN
+            else:
+                self.unclaim(source_context, filename)
+
+
+    def reinventory_source(self, source_context):
+        inventory = self.send(source_context, "inventory")
+        if not inventory or inventory.value() is None:
+            self.logger.debug(f"Didn't get an inventory from {source_context}")
+            return False
+
+        scanner = self.scanners[source_context]
+        self.logger.debug(f"re-inventory got {len(inventory)} files from {source_context}")
+        self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
+        # claim (or disclaim) the server's list
+        self.claim_from_list(inventory)
+
+        # claim (or disclaim) things I have but serve doesn't know about
+        orphans = [ filename for filename in scanner \
+                        if filename not in inventory ]
+        self.claim_from_list(orphans)
+
+
+
+
+
     # aggressively re-inventory my contents:
     # 1) get a (complete) list of what the server thinks I have,
     #   reclaim (or unclaim) each
@@ -390,12 +435,12 @@ class Clientlet(Thread):
                 if response and response.value() is not None:
                     self.logger.debug(f"re-inventory got {len(response)} files from {source_context}")
                     self.logger.debug(f"{response}")
-                    self.logger.debug(f"I hold {len(scanner.keys())} files from {source_context}")
+                    self.logger.debug(f"I hold {len(scanner)} files from {source_context}")
                     # claim (or disclaim) the server's list
                     for filename in response:
                         if filename in scanner:
                             counted[filename] = 1
-                            if not self.claim_valid(source_context, filename):
+                            if not self.claim_is_valid(source_context, filename):
                                 claimed = self.claim(source_context, filename, dropping=True)
                                 # TODO: handle a failed claim
                                 if claimed not in ("ack", "keep"):
@@ -405,7 +450,7 @@ class Clientlet(Thread):
                         else:
                             self.unclaim(source_context, filename)
                 # claim any I have but not in his list
-                for filename in list(scanner.keys()):
+                for filename in scanner:
                     if filename not in counted:
                         claimed = self.claim(source_context, filename, dropping=True)
                         # TODO: handle a failed claim
@@ -425,6 +470,8 @@ class Clientlet(Thread):
 
     def audit(self):
         self.logger.debug(f"auditing {self}: {self.drops} drops")
+        for stat in self.stats:
+            self.logger.debug(f"{stat}: {self.stats[stat].qps()}")
         for source_context in sorted(self.scanners):
             # nfiles = len(self.scanners[source_context].states.items())
             nfiles = len(self.scanners[source_context].items())
@@ -509,9 +556,46 @@ class Clientlet(Thread):
             return self.try_to_copy()
             
 
+    def run_all_scanners_once(self):
+        for source_context in self.scanners:
+            self.scanners[source_context].scan()
+            nfiles = len(self.scanners[source_context])
+            self.logger.debug(f"scan complete, {nfiles} files")
+
+
+    def stop(self):
+        self.bailing = True
 
 
     def run(self):
+        self.bailing = False # future use, to kill the Thread
+        self.last_copy = "unknown"
+        timer = elapsed.ElapsedTimer()
+        while not self.bailing:
+            self.audit()
+            # TODO: honor different rescans per source
+            if timer.once_every(self.rescan):
+                self.run_all_scanners_once()
+                self.reinventory()
+
+            self.server_statuses = self.check_on_servers()
+            if self.full_p(): 
+                self.logger.debug("I'm full (?) trying to drop")
+                self.try_to_drop()
+            elif "underserved" in self.server_statuses:
+                self.try_to_copy()
+            elif "available" in self.server_statuses and \
+                self.last_copy != "not enough space":
+                self.try_to_copy()
+            else:
+                sleep_time = self.rescan - timer.elapsed()
+                sleep_msg = utils.duration_to_str(sleep_time)
+                self.logger.info(f"sleeping {sleep_msg} til next rescan")
+                time.sleep(sleep_time)
+            time.sleep(5)
+
+
+    def DEADrun(self):
         self.bailing = False # future use, to kill the Thread
         timer = elapsed.ElapsedTimer()
         for source_context in self.scanners:
