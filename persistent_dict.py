@@ -1,13 +1,17 @@
 #! python 3.x
 
 """
-from persistentdict import PersistentDict
+from persistent_dict import PersistentDict
 
 pd = PersistentDict("dict.json")
 pd.startTransaction()
 pd.set()
 pd.set()
 pd.closeTransaction()
+
+If kwargs "cls" is provided, this will be a dict of the named class.
+The class should provide serialize(), deserialize(data), and set(value)
+functions.
 """
 
 import os, json, logging, threading, bz2
@@ -15,18 +19,27 @@ from utils import logger_str
 import elapsed, config
 
 class PersistentDict:
-    def __init__(self, filename, lazy_timer = 0, **kwargs):
-        self.masterFilename = filename
-        self.transactionName = None
-        self.data = {}
+    def __init__(self, filename, *args, **kwargs):
         self.logger = logging.getLogger(logger_str(__class__))
         self.logger.setLevel(logging.INFO)
-        self.lazy_timer = lazy_timer
-        # self.logger.debug(f"lazy: {lazy_timer}")
+        self.masterFilename = filename
+        self.args = args
+        self.kwargs = kwargs
+        if 'lazy_write' in kwargs:
+            self.lazy_timer = kwargs['lazy_write']
+        else:
+            self.lazy_timer = 0
+        self.data = {}
+        if 'cls' in kwargs:
+            self.cls = kwargs['cls']
+        else:
+            self.cls = None
+        self.transactionName = None
         self.dirty = False
         self.read()
         self.clear_dirtybits()
         self.timer = elapsed.ElapsedTimer()
+        # TODO: "metadata" is really just a hidden prefix
         if "metadata" in kwargs:
             self.metadata_key = kwargs["metadata"]
         else:
@@ -53,8 +66,8 @@ class PersistentDict:
         try:
         # https://stackoverflow.com/questions/39450065/python-3-read-write-compressed-json-objects-from-to-gzip-file
             with bz2.open(filename, "r") as statefile:
-                # self.data = json.load(statefile)
-                self.data = json.loads(statefile.read().decode('utf-8'))
+                data = json.loads(statefile.read().decode('utf-8'))
+                self.data = self.classify(data)
                 if self.data is None:
                     self.logger.debug("json.load() -> self.data is None")
                     self.data = {}
@@ -75,11 +88,26 @@ class PersistentDict:
         # self.logger.debug(f"writing data: {filename}")
         self.mkdir(filename)
         with bz2.open(f"{filename}.tmp", "w") as statefile:
-            # json.dump(self.data, statefile, sort_keys=True, indent=4)
-            statefile.write(json.dumps(self.data, \
+            statefile.write(json.dumps(self.de_classify(), \
                         sort_keys=True, indent=4).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
         self.dirty = False
+
+
+    def classify(self, data):
+        if self.cls:
+            for key in data.keys():
+                data[key] = self.cls().deserialize(data[key])
+        return data
+
+
+    def de_classify(self):
+        data = {}
+        if self.cls:
+            for key in self.data.keys():
+                data[key] = self.data[key].serialize()
+            return data
+        return self.data
 
 
     def lazy_write(self):
@@ -119,7 +147,12 @@ class PersistentDict:
     def __setitem__(self, key, value):
         lock = threading.RLock()
         lock.acquire()
-        self.data[key] = value
+        if self.cls:
+            if key not in self.data:
+                self.data[key] = self.cls(*self.args, **self.kwargs)
+            self.data[key].set(value)
+        else:
+            self.data[key] = value
         self.touch(key)
         self.dirty = True
         self.lazy_write()
@@ -129,15 +162,21 @@ class PersistentDict:
     def __getitem__(self, key):
         return self.data[key]
 
+
     def __contains__(self, key):
         return key in self.data
+
 
     def __delete__(self, key):
         del self.data[key]
 
 
-    def get(self, key):
-        return self[key]
+    def __iter__(self):
+        return iter(self.data)
+
+
+    def __len__(self):
+        return len(self.data)
 
 
     def keys(self):
