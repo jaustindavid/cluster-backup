@@ -29,8 +29,8 @@ class Scanner(PersistentDict):
 
         self.config = config.Config.instance()
         self.pd_filename = f".cb.{context}.json.bz2"
-        lazy_write = self.config.get(context, "LAZY WRITE", 5)
-        super().__init__(f"{self.path}/{self.pd_filename}", lazy_write) 
+        lazy_write = utils.str_to_duration(self.config.get(context, "LAZY WRITE", 5))
+        super().__init__(f"{self.path}/{self.pd_filename}", lazy_write=lazy_write) 
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
         self.logger.setLevel(logging.INFO)
         self.ignored_suffixes = {}
