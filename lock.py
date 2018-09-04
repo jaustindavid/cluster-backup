@@ -55,7 +55,8 @@ class Lock:
                 
 
     def set(self, key):
-        self[key] = "ignored"
+        if key is not None:
+            self[key] = "ignored"
 
 
     def __setitem__(self, key, ignored_value):
