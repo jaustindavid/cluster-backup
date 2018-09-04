@@ -81,6 +81,8 @@ class PersistentDict:
 
 
     def write(self, verbose = False):
+        lock = threading.RLock()
+        lock.acquire()
         if self.transactionName is not None:
             filename = f"{self.masterFilename}.{self.transactionName}"
         else:
@@ -92,6 +94,7 @@ class PersistentDict:
                         sort_keys=True, indent=4).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
         self.dirty = False
+        lock.release()
 
 
     def classify(self, data):
@@ -138,10 +141,7 @@ class PersistentDict:
 
 
     def set(self, key, value):
-        lock = threading.RLock()
-        lock.acquire()
         self[key] = value
-        lock.release()
 
 
     def __setitem__(self, key, value):
