@@ -11,7 +11,7 @@ def handler(datagram):
 logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s', 
                     level=logging.DEBUG)
 
-s = DatagramServer("localhost", 5000)
+s = DatagramServer("localhost", 5005)
 
 while True:
     # datagram = s.accept()
