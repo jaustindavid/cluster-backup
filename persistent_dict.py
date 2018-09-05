@@ -88,9 +88,11 @@ class PersistentDict:
 
     def lazy_write(self):
         if self.lazy_timer == 0 or self.timer.elapsed() > self.lazy_timer:
-            # self.logger.debug("lazy timer expired; writing")
-            self.write()
-            self.timer.reset()
+            self.lock.acquire()
+            if self.lazy_timer == 0 or self.timer.elapsed() > self.lazy_timer:
+                self.write()
+                self.timer.reset()
+            self.lock.release()
 
 
     def mkdir(self, filename):
@@ -108,7 +110,7 @@ class PersistentDict:
 
 
     def __setitem__(self, key, value):
-        self.lock.acquire()
+        # self.lock.acquire()
         if self.cls:
             if key not in self.data:
                 self.data[key] = self.cls(*self.args, **self.kwargs)
@@ -117,7 +119,7 @@ class PersistentDict:
             self.data[key] = value
         self.touch(key)
         self.lazy_write()
-        self.lock.release()
+        # self.lock.release()
 
 
     def __getitem__(self, key):
@@ -141,25 +143,25 @@ class PersistentDict:
 
 
     def keys(self):
-        self.lock.acquire()
+        # self.lock.acquire()
         keys = self.data.keys()
-        self.lock.release()
+        # self.lock.release()
         return keys
 
 
     def __delitem__(self, key):
-        self.lock.acquire()
+        # self.lock.acquire()
         del self.data[key]
         self.lazy_write()
         if key in self.dirtybits:
             del self.dirtybits[key]
-        self.lock.release()
+        # self.lock.release()
 
 
     def items(self):
-        self.lock.acquire()
+        # self.lock.acquire()
         items = self.data.items()
-        self.lock.release()
+        # self.lock.release()
         return items
             
 
