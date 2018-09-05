@@ -40,7 +40,7 @@ import logging, json, zlib, socket
 class Datagram:
     def __init__(self, *contents, **kwargs):
         self.data = {}
-        self.connection = None
+        self.connection = self.server = self.port = None
         self.logger = logging.getLogger(str(__class__)[8:-2])
         self.logger.setLevel(logging.INFO)
 
