@@ -12,7 +12,7 @@ class TestMethods(unittest.TestCase):
             os.mkdir("/tmp/scanner-test")
             cwd = os.getcwd()
             os.chdir("/tmp/scanner-test")
-            subprocess.call(["tar", "xfvz", f"{cwd}/scanner-test.tgz"])
+            subprocess.call(["tar", "xfz", f"{cwd}/scanner-test.tgz"])
             os.chdir(cwd)
 
 
@@ -29,7 +29,7 @@ class TestMethods(unittest.TestCase):
         cfg.init("test-config.txt", "source", "backup", hostname="localhost")
         contexts = list(cfg.get_contexts_for_key("source").keys())
         print(contexts)
-        context = contexts[0]
+        context = contexts[1]
         path = config.path_for(cfg.get(context, "source"))
         print(path)
         s = scanner.Scanner(context, path)
@@ -59,6 +59,30 @@ class TestMethods(unittest.TestCase):
         self.assertEquals(s['./one.zero']['checksum'], "deferred")
         s.scan()
         self.assertNotEquals(s['./one.zero']['checksum'], "deferred")
+
+
+    def test_qps(self):
+        import elapsed
+        timer = elapsed.ElapsedTimer()
+        dir = "/users/austind/src/cb/test/source1"
+        s = scanner.Scanner("test", dir, checksums=False)
+        print("starting QPS test")
+        s.scan(turbo=True)
+        print(f"So far: {timer.elapsed():5.2f}s")
+        s.scan()
+        print(f"Total: {timer.elapsed():5.2f}s")
+        os.remove(f"{dir}/.cb.test.json.bz2")
+
+
+    def test_qps_lite(self):
+        import elapsed
+        timer = elapsed.ElapsedTimer()
+        dir = "/users/austind/src/cb/test/source1"
+        s = scanner.ScannerLite("test", dir, checksums=False)
+        print("starting QPS test")
+        s.scan()
+        print(f"Total: {timer.elapsed():5.2f}s")
+        os.remove(f"{dir}/.cb.test-lite.json.bz2")
 
 
 if __name__ == "__main__":
