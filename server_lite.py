@@ -137,7 +137,9 @@ class Servlet(Thread):
         bucketsize = { 0: 0 }
         self.expire_claims()
 
-        for filename in self.scanner:
+        with self.scanner:
+            scanned_files = self.scanner.keys()
+        for filename in scanned_files:
             size = self.scanner[filename]
             if filename in self.clients:
                 bucket = len(self.clients[filename])
