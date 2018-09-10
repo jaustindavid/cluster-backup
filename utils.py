@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import hashlib
+import hashlib, config, re, logging
 
 
 # <class '__main__.GhettoCluster'> -> GhettoCluster
@@ -9,25 +9,39 @@ def logger_str(classname):
     return string[string.index('.')+1:string.index("'>")]
 
 
+def get_interval(cfg, interval_name, contexts = []):
+    interval = cfg.get("global", interval_name)
+    for context in contexts:
+        new_interval = cfg.get(context, interval_name)
+        if new_interval:
+            interval = new_interval
+    if interval:
+        return str_to_duration(interval)
+    return 0
+
+
 # 1024 -> "1.000k" 
 def bytes_to_str(bytes, **kwargs):
-    def helper(bytes, string, magnitude, suffix):
+    def DEADhelper(bytes, string, magnitude, suffix):
         if bytes > magnitude:
             string = f"{string}{bytes // magnitude}{suffix}"
             bytes = bytes % magnitude
         return (bytes, string)
 
-    string = ""
+    prefix = ""
+    if bytes < 0:
+        bytes *= -1
+        prefix = "-"
 
     if bytes > 2**40:
-        return f"{bytes/2**40:5.3f}T"
+        return f"{prefix}{bytes/2**40:5.3f}T"
     if bytes > 2**30:
-        return f"{bytes/2**30:5.3f}G"
+        return f"{prefix}{bytes/2**30:5.3f}G"
     if bytes > 2**20:
-        return f"{bytes/2**20:5.3f}M"
+        return f"{prefix}{bytes/2**20:5.3f}M"
     if bytes > 2**10:
-        return f"{bytes/2**20:5.3f}K"
-    return f"{bytes}B"
+        return f"{prefix}{bytes/2**20:5.3f}K"
+    return f"{prefix}{bytes}B"
         
 
 # "99gb" -> 99*2**30, "1.5t" -> 1.5*2**40
@@ -103,30 +117,68 @@ def str_to_duration(string):
     return total
 
 
+def hash(string):
+    h = hashlib.sha256()
+    h.update(string.encode())
+    return h.hexdigest()[-8:]
 
-def NOPErsync(source, dest, options = [], **kwargs):
+
+
+
+
+def escape_special_chars(string):
+    new_string = re.sub(r"'", r"\'", string)
+    new_string = re.sub(r'"', r'\"', new_string)
+    new_string = re.sub(r' ', r'\ ', new_string)
+    new_string = re.sub(r'\(', r'\(', new_string)
+    new_string = re.sub(r'\)', r'\)', new_string)
+    new_string = re.sub(r'&', r'\&', new_string)
+    return new_string
+
+
+def looks_remote(string):
+    return re.match(r'^[^/]+:', string)
+
+
+
+# returns a Unix exit code: 0 == good, !0 == bad
+# TODO: move options into kwargs
+def rsync(source, dest, options = [], **kwargs):
     cfg = config.Config.instance()
-    dryrun = cfg.getConfig("global", "dryrun", False)
+    verbose = cfg.get("global", "verbose", False)
+    dryrun = cfg.get("global", "dryrun", False)
+    if 'prefix' in kwargs:
+        logger_str = kwargs['prefix'] + " rsync"
+    else:
+        logger_str = "rsync"
 
     RSYNC = "rsync"
 	# rsync is silly about escaping spaces -- remote locations ONLY
-    if ":" in source: 
-        source = re.sub(r' ', '\ ', source)
-    if ":" in dest:
-        dest = re.sub(r' ', '\ ', dest)
-    RSYNC_TIMEOUT = str(cfg.getConfig("global", "RSYNC TIMEOUT", 180))
-    command = [ RSYNC, "-av", "--inplace", "--partial", \
-                "--timeout", RSYNC_TIMEOUT, "--progress", \
-                source, dest ]
+    if looks_remote(source):
+         source = escape_special_chars(source)
+    if looks_remote(dest):
+        dest = escape_special_chars(dest)
+    # print(source, dest)
+    RSYNC_TIMEOUT = str(cfg.get("global", "RSYNC TIMEOUT", 180))
+    RSYNC_BWLIMIT = str(cfg.get("global", "RSYNC BWLIMIT", 0))
+    command = [ RSYNC, "-a", "--inplace", "--partial", \
+                "--timeout", RSYNC_TIMEOUT, source, dest ]
     if len(options) > 0:
         command += options
-    if "verbose" in kwargs and kwargs["verbose"]:
+    # if len(ignorals) > 0:
+    #     command += [ f"--exclude={item}" for item in ignorals ] 
+    if verbose:
         command += ["-v", "--progress"]
-    logger = logging.getLogger("rsync")
-    logger.debug(command)
-
+    if RSYNC_BWLIMIT != "0":
+        command += ["--bwlimit", RSYNC_BWLIMIT]
+    logger = logging.getLogger(logger_str)
+    if "stfu" in kwargs and kwargs["stfu"]:
+        logger.setLevel(logging.INFO)
+    # logger.debug(command)
+    logger.debug(f"executing: {' '.join(command)}")
     if dryrun:
         logger.info("> " + " ".join(command))
+        return 0
     else:
         # https://stackoverflow.com/questions/21953835/run-subprocess-and-print-output-to-logging#comment33261012_21953835
         from subprocess import Popen, PIPE, STDOUT
@@ -136,21 +188,23 @@ def NOPErsync(source, dest, options = [], **kwargs):
         else:
             loghole = logger.info
 
+        command = [ s.encode() for s in command ]
+
+        process = Popen(command, stdout=PIPE, stderr=STDOUT)
         try:
-            process = Popen(command, stdout=PIPE, stderr=STDOUT)
             with process.stdout:
                 for line in iter(process.stdout.readline, b''):
-                    # returns bytestrings, decode those
+                    # b'\n'-separated lines
                     loghole("> %s", line.decode().strip())
                 exitcode = process.wait()
+            return exitcode
         except BaseException:
             process.terminate()
             logger.exception("Caught ...something")
             sys.exit()
-        return exitcode
+        return None
 
 
-def hash(string):
-    h = hashlib.sha256()
-    h.update(string.encode())
-    return h.hexdigest()[-8:]
+if __name__ == "__main__":
+    fs = FileState("file_state.py")
+    print(fs)
