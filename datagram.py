@@ -41,8 +41,14 @@ class Datagram:
     def __init__(self, *contents, **kwargs):
         self.data = {}
         self.connection = self.server = self.port = None
-        self.logger = logging.getLogger(str(__class__)[8:-2])
-        self.logger.setLevel(logging.INFO)
+        if 'name' in kwargs:
+            self.name = kwargs['name']
+        else:
+            self.name = f"{str(__class__)[8:-2]} {id(self)}"
+        self.logger = logging.getLogger(self.name)
+        # self.logger.setLevel(logging.INFO)
+
+        self.compressing = "compress" in kwargs
 
         if "connection" in kwargs:
             # slurp the universe from the connection
@@ -72,7 +78,8 @@ class Datagram:
 
 
     def value(self):
-        self.logger.debug(f"I have {self.data}")
+        if not self.compressing:
+            self.logger.debug(f"I have {str(self.data)[:200]}...")
         return self.data
 
 
@@ -100,12 +107,6 @@ class Datagram:
 
     def __bool__(self):
         return self.connected()
-        # TODO: clean up
-        if self.data['truthiness'] is not None:
-            return self.data['truthiness']
-        if type(self.data) is str:
-            return bool(self.data and self.data != "")
-        return bool(self.data)
         
 
     def __len__(self):
@@ -142,7 +143,10 @@ class Datagram:
 
 
     def serialize(self):
-        return zlib.compress(bytes(json.dumps(self.data), 'ascii'))
+        if self.compressing:
+            return zlib.compress(bytes(json.dumps(self.data), 'ascii'))
+        else:
+            return bytes(json.dumps(self.data), 'ascii')
 
 
 
@@ -150,7 +154,10 @@ class Datagram:
         if not data:
             return
         try:
-            self.data = json.loads(zlib.decompress(data))
+            if self.compressing:
+                self.data = json.loads(zlib.decompress(data))
+            else:
+                self.data = json.loads(data)
         except (zlib.error, json.decoder.JSONDecodeError):
             self.logger.exception("Can't deserialize... (handling)")
             self.data = None
@@ -160,7 +167,7 @@ class Datagram:
         # if "bool" in kwargs:
         #     self.data['truthiness'] = kwargs['bool']
         if contents:
-            self.logger.debug(f"new contents: {contents}")
+            self.logger.debug(f"new contents: {str(contents)[:200]}...")
             if len(contents) == 1:
                 self.data = contents[0]
             else:
@@ -208,7 +215,10 @@ class Datagram:
 
         self.set(*contents)
         data = self.serialize()
-        self.logger.debug(f"Sending {data}")
+        if self.compressing:
+            self.logger.debug(f"Sending {len(data)} compressed bytes")
+        else:
+            self.logger.debug(f"Sending {len(data)} bytes: {str(data)[:200]}")
 
         return self._send(data)
 
@@ -266,7 +276,10 @@ class Datagram:
             self.logger.debug("Connection closed :(")
             self.close()
             return None
-        self.logger.debug(f"data is {data}")
+        if self.compressing:
+            self.logger.debug(f"data is {len(data)} compressed bytes")
+        else:
+            self.logger.debug(f"data is {len(data)} bytes: {str(data)[:200]}")
         return data
 
 
@@ -320,7 +333,7 @@ class DatagramServer:
         self.socket.listen(10)
 
 
-    def accept(self):
+    def accept(self, **kwargs):
         conn, addr = self.socket.accept()
-        dgram = Datagram(connection=conn)
+        dgram = Datagram(connection=conn, **kwargs)
         return dgram
