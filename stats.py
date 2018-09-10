@@ -51,6 +51,11 @@ class Stats:
         self.kwargs = kwargs
 
 
+    def reset(self):
+        for stat in self.data:
+            self.data[stat].set(0)
+
+
     def __setitem__(self, key, value):
         if key not in self.data:
             self.data[key] = Statistic(*self.args, **self.kwargs)
