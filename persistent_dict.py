@@ -31,7 +31,7 @@ class PersistentDict:
             self.cls = kwargs['cls']
         else:
             self.cls = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.read()
         self.clear_dirtybits()
         self.timer = elapsed.ElapsedTimer()
@@ -68,6 +68,7 @@ class PersistentDict:
             statefile.write(json.dumps(self.de_classify(), \
                         sort_keys=True, indent=4).encode('utf-8'))
         os.rename(f"{filename}.tmp", filename)
+        # self.logger.warn(f"wrote {filename}")
 
 
     def classify(self, data):
@@ -87,12 +88,34 @@ class PersistentDict:
 
 
     def lazy_write(self):
+        # self.logger.warn(f"PD{id(self)} trying to lazy_write?")
         if self.lazy_timer == 0 or self.timer.elapsed() > self.lazy_timer:
+            # self.logger.warn(f"PD{id(self)} trying to lazy_write, locking:")
             self.lock.acquire()
+            # self.logger.warn(f"PD{id(self)} locked in lazy_write")
             if self.lazy_timer == 0 or self.timer.elapsed() > self.lazy_timer:
                 self.write()
                 self.timer.reset()
+            # else:
+                # self.logger.warn(f"PD{id(self)} not writing")
             self.lock.release()
+
+
+    def __enter__(self):
+        self.lock.acquire()
+
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.lock.release()
+
+
+    def locked(self):
+        can_lock = self.lock.acquire(False)
+        if can_lock:
+            self.lock.release()
+            return False
+        return True
+
 
 
     def mkdir(self, filename):
@@ -130,7 +153,7 @@ class PersistentDict:
         return key in self.data
 
 
-    def __delete__(self, key):
+    def __DEADdelete__(self, key):
         del self.data[key]
 
 
