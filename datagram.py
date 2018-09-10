@@ -245,6 +245,14 @@ class Datagram:
         return True
 
 
+    # slurps a lot of data down a connection, deserializes it
+    # and returns it for good measure
+    def receive(self, **kwargs):
+        data = self._receive(**kwargs)
+        self.deserialize(data)
+        return self.data
+
+
     # low(er)-level "receive"; returns a hunk of data
     def _receive(self, **kwargs):
         BUFFER_SIZE = 1024
@@ -281,14 +289,6 @@ class Datagram:
         else:
             self.logger.debug(f"data is {len(data)} bytes: {str(data)[:200]}")
         return data
-
-
-    # slurps a lot of data down a connection, deserializes it
-    # and returns it for good measure
-    def receive(self, **kwargs):
-        data = self._receive(**kwargs)
-        self.deserialize(data)
-        return self.data
 
 
     def close(self):
