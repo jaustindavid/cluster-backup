@@ -1,4 +1,4 @@
-#! python
+#!/usr/bin/env python3
 
 import time
 from datagram import *
@@ -8,13 +8,16 @@ logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s',
 
 buffer = "a" * 1000
 
-# datagram = Datagram(buffer, server="localhost", port=5000)
-with Datagram(buffer, server="localhost", port=5005) as datagram:
-    print(datagram.ping())
+PORT=5004
+
+with Datagram(buffer, server="localhost", port=PORT) as datagram:
+    print(f"ping: {datagram.ping()}")
     if datagram.send(): # or send(server="localhost", port=5000)
         print(datagram.receive())
         buffer = "b" * 1000
-        datagram.send(buffer)
-        print("done")
+        if datagram.send(buffer):
+            print(datagram.receive())
+        else:
+            print("receive failed")
 
 time.sleep(5)

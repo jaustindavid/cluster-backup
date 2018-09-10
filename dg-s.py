@@ -1,22 +1,24 @@
-#! python
+#!/usr/bin/env python3
 
 from datagram import *
+import _thread
 
-def handler(datagram):
-    print(datagram.value())
-    datagram.send(datagram.value().upper())
-    datagram.close()
-
+PORT = 5004
+def echo_server():
+    s = DatagramServer("localhost", PORT)
+    while True:
+        with s.accept(name='echo server') as datagram:
+            while datagram:
+                got = datagram.value()
+                returned = [ "ack", got ]
+                # print(f"GOT >{got}< RETURNING >{returned}<")
+                datagram.send(returned)
+                datagram.receive()
 
 logging.basicConfig(format='%(asctime)s [%(name)s] %(message)s', 
                     level=logging.DEBUG)
 
 s = DatagramServer("localhost", 5005)
 
-while True:
-    # datagram = s.accept()
-    with s.accept() as datagram:
-        # _thread.start_new_thread(handler, (datagram))
-        message = datagram.value().upper()
-        datagram.send(message.upper())
-        print(datagram.receive())
+print(f"Listening on {PORT}")
+echo_server()
