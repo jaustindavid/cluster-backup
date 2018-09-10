@@ -5,4 +5,4 @@ find ~/src/cb/test -name .cb\*.json\* -print -exec rm {} \;
 rm /tmp/*.json.bz2
 
 echo "removing backup stuff"
-rm -vr ~/src/cb/test/backup?/*
+rm -r ~/src/cb/test/backup?/*
