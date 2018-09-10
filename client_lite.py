@@ -578,6 +578,8 @@ class Clientlet(Thread):
 
         if datagram.send():
             datagram.receive()
+        else:
+            self.logger.info("send() failed")
         return datagram
 
 
