@@ -2,6 +2,7 @@
 
 import _thread, time
 from threading import Thread
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import config, stats, scanner, lock, utils, elapsed
 from datagram import *
@@ -49,11 +50,14 @@ class Servlet(Thread):
 
 
     def expire_claims(self):
-        if self.logger.getEffectiveLevel() < logging.DEBUG:
+        expires = 0
+        if True or self.logger.getEffectiveLevel() < logging.DEBUG:
             for filename in self.clients:
                 for client, stamp in self.clients[filename].items():
                     if stamp < time.time():
-                        self.logger.log(5, f"WARNING: {client}:{filename} expired")
+                        expires += 1
+        if expires:
+            self.logger.warn(f"Warning: about to expire {expires} files")
         for filename in self.clients:
             self.clients[filename] = { client: stamp \
                 for client, stamp in self.clients[filename].items() \
@@ -130,24 +134,31 @@ class Servlet(Thread):
     def histogram(self):
         hist = f"{len(self.scanner)} total files, need {self.copies} copies\n"
         buckets = { 0: 0 }
+        bucketsize = { 0: 0 }
         self.expire_claims()
 
         for filename in self.scanner:
+            size = self.scanner[filename]
             if filename in self.clients:
-                if len(self.clients[filename]) not in buckets:
-                    buckets[len(self.clients[filename])] = 0
-                buckets[len(self.clients[filename])] += 1
+                bucket = len(self.clients[filename])
+                if bucket not in buckets:
+                    buckets[bucket] = 0
+                    bucketsize[bucket] = 0
+                buckets[bucket] += 1
+                bucketsize[bucket] += size
             else:
                 buckets[0] += 1
+                bucketsize[0] += size
         for bucket in sorted(buckets.keys(), reverse=True):
             if buckets[bucket]:
-                hist += f"{buckets[bucket]:6d} files: {'## ' * bucket}"
+                size = utils.bytes_to_str(bucketsize[bucket])
+                hist += f"{buckets[bucket]:6d} files, {size.rjust(8)}: {'## ' * bucket}"
                 if bucket < self.copies:
                     missing = self.copies - bucket
                     hist += "__ " * missing
             hist += "\n"
         return hist
-            
+
 
     def dump(self):
         message = ""
@@ -164,12 +175,11 @@ class Servlet(Thread):
                 
 
     def audit(self):
-        self.logger.debug("Auditing")
-        self.logger.info(f"\n{self.histogram()}")
+        self.logger.info(f"Auditing:\n{self.histogram()}")
         for statistic in self.stats:
-            self.logger.info(f"{statistic}: {self.stats[statistic].qps()}")
-        self.logger.log(5, f"\n{self.dump()}")
-        self.clients.lazy_write()
+            self.logger.debug(f"{statistic}: {self.stats[statistic].qps()}")
+        # self.logger.log(5, f"\n{self.dump()}")
+        # self.clients.lazy_write()
 
 
 
@@ -215,6 +225,36 @@ class Servlet(Thread):
       # #      #####  #    # #      #####
 #     # #      #   #   #  #  #      #   #
  #####  ###### #    #   ##   ###### #    #
+
+
+# https://ruslanspivak.com/lsbaws-part1/
+class WebServer(Thread):
+    def __init__(self, servlets, port=8888):
+        super().__init__()
+        self.servlets = {}
+        self.port = port
+        self.logger = logging.getLogger(utils.logger_str(__class__))
+
+
+    def run(self):
+        listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listen_socket.bind(("", self.port))
+        listen_socket.listen(1)
+        self.logger.info(f"Serving HTTP on 0:{self.port}")
+        while True:
+            client_connection, client_address = listen_socket.accept()
+            request = client_connection.recv(1024)
+            self.logger.debug(request)
+
+            http_response = """\
+        HTTP/1.1 200 OK
+
+        Hello, World!
+        """
+            client_connection.sendall(bytes(http_response, 'ascii'))
+            client_connection.close()
+        
 
 class Server(Thread):
     def __init__(self, hostname):
@@ -306,6 +346,8 @@ class Server(Thread):
         for context, servlet in self.servlets.items():
             servlet.start()
         _thread.start_new_thread(self.auditor, ())
+        # ws = WebServer(self.servlets)
+        # ws.start()
         self.serve() # forever
 
 
