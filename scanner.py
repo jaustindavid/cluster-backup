@@ -155,12 +155,13 @@ class Scanner(PersistentDict):
 
     # update one file
     def update(self, fqde, gen_checksums=True):
-        # self.logger.debug(f"changed: {fqde}")
-        # self.logger.debug(f"old: {self[fqde]}")
-        actualState = FileState(fqde, gen_checksums, 
-                                prefix=self.path)
-        # self.logger.debug(f"new: {actualState}")
-        self[fqde] = actualState.to_dict()
+        try:
+            actualState = FileState(fqde, gen_checksums, 
+                                    prefix=self.path)
+            self[fqde] = actualState.to_dict()
+        except FileNotFoundError:
+            if fqde in self:
+                del self[fqde]
 
 
     def drop(self, filename):
