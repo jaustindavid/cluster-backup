@@ -39,17 +39,10 @@ class FileState:
         else:
             self.data['checksum'] = 'deferred'
         self.data['checksum_time'] = time.time()
-        try:
-            filestat = os.lstat(filename)
-            self.data['size'] = filestat.st_size
-            self.data['ctime'] = filestat.st_ctime
-            self.data['mtime'] = filestat.st_mtime
-        except FileNotFoundError:
-            self.logger.exception("??")
-            self.data['checksum'] = 'n/a'
-            self.data['size'] = 0
-            self.data['ctime'] = 0
-            self.data['mtime'] = 0
+        filestat = os.lstat(filename)
+        self.data['size'] = filestat.st_size
+        self.data['ctime'] = filestat.st_ctime
+        self.data['mtime'] = filestat.st_mtime
 
 
     def from_dict(self, data):
