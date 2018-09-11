@@ -143,10 +143,8 @@ def looks_remote(string):
 
 # returns a Unix exit code: 0 == good, !0 == bad
 # TODO: move options into kwargs
-def rsync(source, dest, options = [], **kwargs):
+def rsync(source, dest, options = [], verbose=False, dryrun=False, **kwargs):
     cfg = config.Config.instance()
-    verbose = cfg.get("global", "verbose", False)
-    dryrun = cfg.get("global", "dryrun", False)
     if 'prefix' in kwargs:
         logger_str = kwargs['prefix'] + " rsync"
     else:
@@ -172,8 +170,7 @@ def rsync(source, dest, options = [], **kwargs):
     if RSYNC_BWLIMIT != "0":
         command += ["--bwlimit", RSYNC_BWLIMIT]
     logger = logging.getLogger(logger_str)
-    if "stfu" in kwargs and kwargs["stfu"]:
-        logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     # logger.debug(command)
     logger.debug(f"executing: {' '.join(command)}")
     if dryrun:
@@ -183,10 +180,11 @@ def rsync(source, dest, options = [], **kwargs):
         # https://stackoverflow.com/questions/21953835/run-subprocess-and-print-output-to-logging#comment33261012_21953835
         from subprocess import Popen, PIPE, STDOUT
 
-        if "stfu" in kwargs and kwargs["stfu"]:
-            loghole = logger.debug
-        else:
-            loghole = logger.info
+        # if "stfu" in kwargs and kwargs["stfu"]:
+        #     loghole = logger.debug
+        # else:
+        #     loghole = logger.info
+        loghole = logger.debug
 
         command = [ s.encode() for s in command ]
 
