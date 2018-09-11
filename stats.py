@@ -20,12 +20,12 @@ class Statistic:
             self.starts[bucket] = time.time()
 
 
-    def incr(self, other):
+    def incr(self, value=1):
         for bucket in self.buckets:
             if bucket and self.starts[bucket] + bucket < time.time():
                self.data[bucket] = 0
                self.starts[bucket] = time.time()
-            self.data[bucket] += other
+            self.data[bucket] += value
         return self.data[0]
 
 
