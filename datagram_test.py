@@ -66,7 +66,7 @@ class TestMethods(unittest.TestCase):
     def test_back_n_forth(self):
         datagram = Datagram(server="localhost", port=1492)
         self.assertTrue(datagram.ping())
-        for i in range(0, 9):
+        for i in range(0, 99):
             r = datagram.send(f"hello {i}")
             self.assertTrue(r)
             r = datagram.receive()
@@ -79,7 +79,8 @@ class TestMethods(unittest.TestCase):
     def test_huge_echo(self):
         data = "an arbitrary string"
         buffer = []
-        for i in range(0, 10):
+        N = 1000
+        for i in range(0, N):
             buffer.append(f"{i}{data}{i}")
         logging.getLogger().setLevel(logging.INFO)
         datagram = Datagram(buffer, server="localhost", port=1492)
@@ -87,7 +88,8 @@ class TestMethods(unittest.TestCase):
         echo = datagram.receive()
         print(f"echoed: {echo} (type: {type(echo)})")
         self.assertEquals(buffer, echo[1])
-        self.assertEquals(echo[1][2], buffer[2])
+        for i in range(0, N):
+            self.assertEquals(echo[1][i], buffer[i])
         print(f"JFYI, buffer was {sys.getsizeof(buffer)} bytes!")
 
 

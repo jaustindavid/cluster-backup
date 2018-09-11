@@ -38,32 +38,31 @@ contents
 import logging, json, zlib, socket
 
 class Datagram:
-    def __init__(self, *contents, **kwargs):
+    def __init__(self, *contents, 
+                    name='Datagram', loglevel=logging.INFO, 
+                    compress=False, connection=None,
+                    server=None, port=None,
+                    **kwargs):
         self.data = {}
         self.connection = self.server = self.port = None
-        if 'name' in kwargs:
-            self.name = kwargs['name']
-        else:
-            self.name = f"{str(__class__)[8:-2]} {id(self)}"
-        self.logger = logging.getLogger(self.name)
-        # self.logger.setLevel(logging.INFO)
 
-        self.compressing = "compress" in kwargs
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(loglevel)
 
-        if "connection" in kwargs:
+        self.compressing = compress
+
+        if connection:
             # slurp the universe from the connection
             # ignore all other arguments
-            self.connection = kwargs['connection']
+            self.connection = connection
             self.logger.debug("New from socket")
             self.receive()
             return
 
-        if "server" in kwargs:
-            assert "port" in kwargs, "Required: server, port"
-            self.server = kwargs['server']
-            self.port = kwargs['port']
-        else:
-            self.server = self.port = None
+        if server:
+            assert port, "Required: server, port"
+            self.server = server
+            self.port = port
 
         self.set(*contents)
 
@@ -160,6 +159,7 @@ class Datagram:
                 self.data = json.loads(data)
         except (zlib.error, json.decoder.JSONDecodeError):
             self.logger.exception("Can't deserialize... (handling)")
+            self.logger.debug(f"data was {data}")
             self.data = None
 
 
@@ -195,7 +195,7 @@ class Datagram:
                     self.close()
                     return None
                 except ConnectionRefusedError:
-                    self.logger.exception(f"Connection refused...")
+                    self.logger.debug(f"Connection refused...")
                     self.close()
                     return None
         return self.connection
@@ -225,17 +225,18 @@ class Datagram:
 
     # low(er)-level "send"; takes hunk of data, returns T/F
     def _send(self, data, **kwargs):
+        header = f"SIZE: {len(data):10d}".encode('ascii')
         sock = self._get_connection(**kwargs)
         if sock:
             try:
                 # sock.sendall(bytes(data, 'ascii'))
-                sock.sendall(data)
+                sock.sendall(header + data)
             except socket.timeout:
-                self.logger.exception("timed out in send()")
+                self.logger.debug("timed out in send()")
                 self.close()
                 return False
             except BrokenPipeError:
-                self.logger.exception(f"got that broken pipe")
+                self.logger.debug(f"got that broken pipe")
                 self.close()
                 return False
             except ConnectionRefusedError:
@@ -249,7 +250,13 @@ class Datagram:
     # and returns it for good measure
     def receive(self, **kwargs):
         data = self._receive(**kwargs)
-        self.deserialize(data)
+        if data == b"PING":
+            self._send(b"PONG")
+            return self.receive(**kwargs)
+        if data:
+            self.deserialize(data)
+        else:
+            self.data = None
         return self.data
 
 
@@ -263,14 +270,16 @@ class Datagram:
             return None
 
         try:
-            data = sock.recv(BUFFER_SIZE)
-            # intercepting PING, low-level reponse ;-)
-            if data == b"PING":
-                self.logger.debug("got a PING")
-                self._send(b"PONG")
-                return self._receive(**kwargs)
-            sock.setblocking(False)
-            while True:
+            data = sock.recv(16)
+            self.logger.debug(f"_receive: data is {data}")
+            if data.decode('ascii').startswith("SIZE: "):
+                size = int(data[6:16])
+                data = data[16:]
+            else:
+                self.logger.debug(f"Invalid header?  data={data}")
+                return b''
+            # sock.setblocking(False)
+            while len(data) < size:
                 try:
                     buffer = sock.recv(BUFFER_SIZE)
                 except BlockingIOError:
@@ -279,7 +288,7 @@ class Datagram:
                 if not buffer:
                     break
                 data = data + buffer
-            sock.setblocking(True)
+            # sock.setblocking(True)
         except ConnectionResetError:
             self.logger.debug("Connection closed :(")
             self.close()
