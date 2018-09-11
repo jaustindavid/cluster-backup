@@ -35,9 +35,10 @@ class Scanner(PersistentDict):
         self.config = config.Config.instance()
         self.pd_filename = f".cb.{context}.json.bz2"
         lazy_write = utils.str_to_duration(self.config.get(context, "LAZY WRITE", 5))
-        super().__init__(f"{self.path}/{self.pd_filename}", lazy_write=lazy_write) 
+        super().__init__(f"{self.path}/{self.pd_filename}",
+                            lazy_write=lazy_write, **kwargs) 
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
-        self.logger.setLevel(logging.INFO)
+        # self.logger.setLevel(logging.INFO)
         self.ignored_suffixes = {}
         self.report_timer = elapsed.ElapsedTimer()
         self.stat = stats.Statistic(buckets=(0, 5, 10, 30))
@@ -79,7 +80,7 @@ class Scanner(PersistentDict):
 
     def ignoring(self, ignorals, filename):
         # always ignore state files
-        if False and filename.endswith(self.pd_filename):
+        if filename.endswith(self.pd_filename):
             return True
         for suffix in ignorals:
            # we only ignore suffixes "magically"
@@ -193,7 +194,7 @@ class Scanner(PersistentDict):
         return filename in self.data
 
 
-    def consumption(self):
+    def DEADconsumption(self):
         total = 0
         # for filename, state in self.states.items():
         for filename, state in self.items():
@@ -214,21 +215,23 @@ class Scanner(PersistentDict):
 
 import stats
 class ScannerLite(PersistentDict):
-    def __init__(self, context, path, **kwargs):
+    def __init__(self, context, path, pd_path=None, name=None, 
+                    loglevel=logging.INFO, **kwargs):
         self.context = context
         self.path = os.path.expanduser(path)
-        if "name" in kwargs:
-            name = kwargs["name"]
-        else:
+        if not name:
             name = context
 
         self.config = config.Config.instance()
-        self.pd_filename = f".cb.{context}-lite.json.bz2"
         lazy_write = utils.get_interval(self.config, "LAZY WRITE", (context))
-        pd_file = f"{self.path}/{self.pd_filename}"
+        self.pd_filename = f".cb.{context}-lite.json.bz2"
+        if pd_path:
+            pd_file = f"{pd_path}/{self.pd_filename}"
+        else:
+            pd_file = f"{self.path}/{self.pd_filename}"
         super().__init__(pd_file, lazy_write=lazy_write) 
         self.logger = logging.getLogger(logger_str(__class__) + " " + name)
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(loglevel)
         self.ignored_suffixes = {}
         self.stat = stats.Statistic(buckets=(0, 5, 10, 30))
         self.report_timer = elapsed.ElapsedTimer()
@@ -270,7 +273,8 @@ class ScannerLite(PersistentDict):
 
     def ignoring(self, ignorals, filename):
         # always ignore state files
-        if False and filename.endswith(self.pd_filename):
+        if filename.endswith(self.pd_filename) \
+            or filename.endswith(self.pd_filename + ".tmp"):
             return True
         for suffix in ignorals:
            # we only ignore suffixes "magically"
@@ -359,9 +363,8 @@ class ScannerLite(PersistentDict):
     def consumption(self):
         total = 0
         filenames = list(self.keys())
-        for filename in filenames:
-            if filename in self:
-                total += self[filename]
+        for filename, size in self.items():
+            total += size
         return total
 
 
