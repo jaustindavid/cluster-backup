@@ -103,8 +103,9 @@ class Clientlet(Thread):
             self.paths[source_context] = path
             self.scanners[source_context] = \
                 scanner.ScannerLite(source_context, path,
-                               name=f"{self.context}:{source_context}")
-            claims = f"{self.path}/{self.context}:{source_context}.bz2"
+                                pd_path=self.path, loglevel=logging.INFO,
+                                name=f"{self.context}:{source_context}")
+            claims = f"{self.path}/claims-{self.context}:{source_context}.bz2"
             self.claims[source_context] = PersistentDict(claims,
                                                     lazy_write=lazy_write)
             self.backups[source_context] = {}
@@ -141,7 +142,9 @@ class Clientlet(Thread):
     def consumption(self):
         consumed = 0
         for source_context in self.scanners:
-            consumed += self.scanners[source_context].consumption()
+            sc = self.scanners[source_context].consumption()
+            # self.logger.debug(f"{source_context} -> {sc}")
+            consumed += sc
         return consumed
 
 
@@ -220,7 +223,8 @@ class Clientlet(Thread):
     # re-populates self.backups based on reality
     def build_backups(self):
         for source_context in self.scanners:
-            self.backups[source_context] = self.scanners[source_context].data
+            self.backups[source_context] = \
+                self.scanners[source_context].data.copy()
         
 
     # fake-copy one URI
@@ -230,6 +234,7 @@ class Clientlet(Thread):
         if not uri.filename in self.efficiency:
             self.efficiency[uri.filename] = 0
         self.efficiency[uri.filename] += 1
+        self.stats['copies'].incr(1)
 
 
     def is_owned(self, uri):
@@ -239,7 +244,7 @@ class Clientlet(Thread):
 
     # "drop" one file
     def pseudo_drop_uri(self, uri):
-        self.logger.debug(f"dropping {uri.filename}")
+        self.logger.log(9, f"dropping {uri.filename}")
         self.scanners[uri.source_context].drop(uri.filename)
         if uri.filename in self.backups[uri.source_context]:
             del self.backups[uri.source_context][uri.filename]
@@ -300,7 +305,7 @@ class Clientlet(Thread):
             if uri.ratio < ratio_target:   # sorted list; never drop underserved
                 break
             if self.is_owned(uri) and uri.ratio > ratio_target:
-                self.logger.debug(f"found candidate: {uri.filename}:{uri.ratio}, {uri.size}")
+                self.logger.log(9, f"found candidate: {uri.filename}:{uri.ratio}, {uri.size}")
                 bytes_found += uri.size
                 candidates.append(uri)
         if bytes_found >= size_target:
@@ -382,7 +387,7 @@ class Clientlet(Thread):
             if uri.size <= free:
                 self.pseudo_copy_uri(uri)
                 free -= uri.size
-                self.logger.debug(f"pseudo-copied {uri.filename}; {bytes_to_str(free)} free")
+                self.logger.log(9, f"pseudo-copied {uri.filename}; {bytes_to_str(free)} free")
 
 
     # TODO: queue this if a source isn't available
@@ -436,12 +441,18 @@ class Clientlet(Thread):
         nfiles = total_size = 0
         with open(rsync_filename, "w") as rsync_file:
             for filename in self.backups[source_context].keys():
-                rsync_file.write(f"{filename}\n")
+                try:
+                    rsync_file.write(f"{filename}\n")
+                except UnicodeEncodeError:
+                    self.logger.exception(f"JFYI, caught this while writing {filename}")
+                    self.logger.warn(f"Skipping this file, but plz fixit")
         return rsync_filename
 
 
     def rsync_from_list(self, source_context, filename):
         self.logger.debug(f"rsync {source_context}: {filename}")
+        verbose = self.config.get("global", "verbose", False)
+        dryrun = self.config.get("global", "dryrun", False)
         timer = elapsed.ElapsedTimer()
         (n, size) = self.sizeof(source_context)
         source = self.sources[source_context]
@@ -453,7 +464,7 @@ class Clientlet(Thread):
         filesfrom = f"--files-from={filename}"
         # self.logger.debug(f"rsync --delete {source} {dest} --files-from={filename}")
         prefix = f"{self.context}:{source_context}"
-        rsync_exit = rsync(source, dest, (filesfrom,), prefix=prefix, stfu=False)
+        rsync_exit = rsync(source, dest, (filesfrom, "-v", "--progress"), prefix=prefix)
         bps = size/timer.elapsed()
         self.logger.debug(f"rsync returned {rsync_exit}: {bytes_to_str(bps)}B/s effective")
         return rsync_exit
@@ -492,6 +503,8 @@ class Clientlet(Thread):
         # priority fake-copy a much as I can
         priority_list = self.generate_priority_list(self.inventory)
         self.pseudo_copy(priority_list)
+
+        self.logger.debug(f"actual: {self.consumption()}")
 
         pc = bytes_to_str(self.probable_consumption())
         ac = bytes_to_str(self.consumption())
@@ -589,8 +602,11 @@ class Clientlet(Thread):
         for source_context in self.scanners:
             nfiles += len(self.scanners[source_context])
         consumed = bytes_to_str(self.consumption())
+        probable = bytes_to_str(self.probable_consumption())
         allocated = bytes_to_str(self.allocation)
         self.logger.info(f"currently {self.current_state}; used {consumed} of {allocated} in {nfiles} files")
+        if "copying" in self.current_state:
+            self.logger.info(f"copy in progress: {consumed} of {probable} so far")
         for stat in self.stats:
             self.logger.debug(f"{stat}/s: {self.stats[stat].qps()}")
         self.show_states()
@@ -621,6 +637,14 @@ class Clientlet(Thread):
 
 
     def compute_efficiency(self):
+        copies = int(self.stats['copies'])
+        drops = int(self.stats['drops'])
+        if copies:
+            eff = f"{100 * (copies-drops)/(copies):5.1f}% ({copies-drops}:{copies})"
+        else:
+            eff = "n/a"
+        return eff
+        
         ncopies = 0
         for filename in self.efficiency:
             ncopies += self.efficiency[filename]
@@ -706,7 +730,7 @@ class Client(Thread):
         self.logger.info("Client running...")
         for context, clientlet in self.clientlets.items():
             clientlet.start()
-            time.sleep(30) # stagger multi-client startups
+            time.sleep(15) # stagger multi-client startups
         self.logger.info("Clientlets started")
         while True:
             for context, clientlet in self.clientlets.items():
