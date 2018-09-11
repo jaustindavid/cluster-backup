@@ -16,9 +16,9 @@ from utils import logger_str
 import elapsed, config
 
 class PersistentDict:
-    def __init__(self, filename, *args, **kwargs):
+    def __init__(self, filename, loglevel=logging.INFO, *args, **kwargs):
         self.logger = logging.getLogger(logger_str(__class__))
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(loglevel)
         self.masterFilename = filename
         self.args = args
         self.kwargs = kwargs
