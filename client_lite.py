@@ -615,6 +615,7 @@ class Clientlet(Thread):
 
     def restate(self, new_state):
         if self.current_state != new_state:
+            self.logger.debug(f"State change: {self.current_state} -> {new_state}")
             self.states[self.current_state] += self.state_timer.elapsed()
             self.current_state = new_state
             self.state_timer.reset()
