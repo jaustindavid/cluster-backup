@@ -61,7 +61,7 @@ class Servlet(Thread):
         for filename in self.clients:
             self.clients[filename] = { client: stamp \
                 for client, stamp in self.clients[filename].items() \
-                    if self.clients[filename][client] > time.time() }
+                    if stamp > time.time() }
 
 
     # metadata(): returns a dict({'copies': ##, 'rescan': ##})
